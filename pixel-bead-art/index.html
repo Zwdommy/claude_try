@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>像素拼豆生成器</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>🎨 像素拼豆生成器</h1>
+        <p>上传图片，AI 转换为像素拼豆风格，一次输出 4 种像素密度</p>
+      </header>
+
+      <main>
+        <!-- 上传区 -->
+        <div class="upload-section">
+          <div class="panel upload-panel">
+            <h2>原始图片</h2>
+            <div id="dropzone" class="dropzone">
+              <div class="dropzone-inner" id="dropzone-inner">
+                <div class="upload-icon">📁</div>
+                <p class="upload-hint">点击或拖拽图片到此处</p>
+                <p class="upload-sub">支持 JPG、PNG 格式</p>
+              </div>
+              <img id="preview-img" class="preview-img hidden" alt="原始图片" />
+            </div>
+            <input type="file" id="file-input" accept=".jpg,.jpeg,.png" hidden />
+
+            <button id="generate-btn" disabled>
+              <span id="btn-text">生成拼豆图</span>
+              <span id="btn-spinner" class="spinner hidden"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 进度 -->
+        <div id="progress-wrap" class="progress-wrap hidden">
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <span id="progress-text">等待处理…</span>
+        </div>
+
+        <!-- 4 张结果 -->
+        <div id="results-grid" class="results-grid hidden">
+          <!-- 动态生成 -->
+        </div>
+
+        <!-- Gemini 分析结果 -->
+        <div id="gemini-section" class="gemini-section hidden">
+          <div class="gemini-header">
+            <span class="gemini-title">Gemini 像素分析</span>
+            <span id="pixel-info" class="pixel-info"></span>
+          </div>
+          <p id="gemini-status" class="gemini-status"></p>
+          <canvas id="pixel-canvas" class="pixel-canvas hidden"></canvas>
+        </div>
+
+        <div id="status-bar" class="status-bar hidden"></div>
+      </main>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

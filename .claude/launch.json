@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "stl-viewer",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "3777", "/Users/tommy/claude_try/stl-viewer"],
+      "port": 3777
+    },
+    {
+      "name": "pixel-bead-art",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5173"],
+      "cwd": "/Users/tommy/claude_try/pixel-bead-art",
+      "port": 5173
+    }
+  ]
+}
