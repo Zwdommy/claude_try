@@ -14,12 +14,24 @@ const VARIANTS = [
   { prompt: 'pixel bead art, fine 20x20 pixel grid, small square pixels, flat colors, no gradients, detailed retro pixel art' },
 ];
 
+const SMALL_VARIANTS = [
+  { prompt: 'pixel bead art, ultra coarse 6x6 pixel grid, huge square pixels, flat bold colors, no gradients, retro 8-bit style' },
+  { prompt: 'pixel bead art, extremely coarse 7x7 pixel grid, very large square pixels, flat bold colors, no gradients, retro 8-bit style' },
+  { prompt: 'pixel bead art, very coarse 8x8 pixel grid, large square pixels, flat colors, no gradients, retro 8-bit style' },
+  { prompt: 'pixel bead art, coarse 10x10 pixel grid, large square pixels, flat bold colors, no gradients, retro 8-bit style' },
+];
+
+let smallMode = false;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function resizeAndBase64(img, maxSize = 1024) {
-  const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
-  const w = Math.round(img.naturalWidth  * scale);
-  const h = Math.round(img.naturalHeight * scale);
+  // SVG 没有声明 width/height 时 naturalWidth 为 0，回退到 maxSize
+  const srcW = img.naturalWidth  || maxSize;
+  const srcH = img.naturalHeight || maxSize;
+  const scale = Math.min(1, maxSize / Math.max(srcW, srcH));
+  const w = Math.round(srcW * scale);
+  const h = Math.round(srcH * scale);
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   c.getContext('2d').drawImage(img, 0, 0, w, h);
@@ -72,6 +84,14 @@ const exportPartsBtn      = document.getElementById('export-parts-btn');
 let sourceImage  = null;
 let cachedPieces = null; // last generated pieces
 
+// ── 小鼻嘎模式 ────────────────────────────────────────────────────────────────
+const smallModeBtn = document.getElementById('small-mode-btn');
+smallModeBtn.addEventListener('click', () => {
+  smallMode = !smallMode;
+  smallModeBtn.classList.toggle('active', smallMode);
+  smallModeBtn.textContent = smallMode ? '🐣 小鼻嘎模式 ON' : '🐣 小鼻嘎模式';
+});
+
 // ── Upload / Drag-drop ────────────────────────────────────────────────────────
 dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
@@ -84,8 +104,8 @@ dropzone.addEventListener('drop', e => {
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
 
 function loadFile(file) {
-  if (!file.type.match(/image\/(jpeg|png)/)) {
-    showStatus('仅支持 JPG 或 PNG 格式', 'error');
+  if (!file.type.match(/image\/(jpeg|png|svg\+xml)/)) {
+    showStatus('仅支持 JPG、PNG 或 SVG 格式', 'error');
     return;
   }
   const url = URL.createObjectURL(file);
@@ -117,15 +137,16 @@ generateBtn.addEventListener('click', async () => {
     const base64 = resizeAndBase64(sourceImage, 1024);
     showProgress(10, '并行提交 4 个任务到 Meshy AI…');
 
+    const activeVariants = smallMode ? SMALL_VARIANTS : VARIANTS;
     const taskIds = await Promise.all(
-      VARIANTS.map(v => createMeshyTask(base64, v.prompt))
+      activeVariants.map(v => createMeshyTask(base64, v.prompt))
     );
     showProgress(20, '等待 4 个任务完成…');
 
     const imageUrls = await pollAllTasks(taskIds);
 
     resultsGrid.innerHTML = '';
-    for (let i = 0; i < VARIANTS.length; i++) {
+    for (let i = 0; i < activeVariants.length; i++) {
       resultsGrid.appendChild(buildCard(i + 1, imageUrls[i]));
     }
     resultsGrid.classList.remove('hidden');
@@ -294,7 +315,10 @@ async function analyzeWithGemini(imageUrl, cardIndex) {
                 '- color must be the most representative hex color of that block (e.g. "#FF3300"), never approximate to white/black unless the block truly is\n' +
                 '- EXCLUDE background pixels: do NOT include pixels that belong to the background, empty space, or plain backdrop surrounding the main subject\n' +
                 '- only include pixels that are part of the actual foreground subject\n' +
-                '- list included pixels row by row (top to bottom), left to right',
+                '- list included pixels row by row (top to bottom), left to right' +
+                (smallMode
+                  ? '\n- IMPORTANT: use a coarse grid of at most 10 columns and 10 rows; the total number of foreground pixels must not exceed 100'
+                  : ''),
             },
           ],
         }],
@@ -318,8 +342,14 @@ async function analyzeWithGemini(imageUrl, cardIndex) {
       throw new Error('JSON 格式不正确');
     }
 
+    // 小鼻嘎模式：强制限制在 100 个像素以内
+    if (smallMode && pixelData.pixels.length > 100) {
+      pixelData.pixels = pixelData.pixels.slice(0, 100);
+      setGeminiStatus(`⚠️ 小鼻嘎模式：已裁剪至 100 个像素`, false);
+    }
+
     renderPixelCanvas(pixelData);
-    setGeminiStatus('');
+    if (!smallMode || pixelData.pixels.length <= 100) setGeminiStatus('');
   } catch (err) {
     console.error('[gemini]', err);
     setGeminiStatus(`Gemini 出错：${err.message}`, true);

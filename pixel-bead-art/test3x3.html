@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3×3 打印测试</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px;
+      gap: 24px;
+    }
+    h1 { font-size: 1.4rem; color: #a78bfa; }
+    p.sub { font-size: 0.85rem; color: #888; }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 56px);
+      grid-template-rows: repeat(3, 56px);
+      gap: 3px;
+      background: #2a2a3e;
+      padding: 12px;
+      border-radius: 10px;
+    }
+    .preview-cell {
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,.6);
+      font-weight: 600;
+    }
+
+    button {
+      padding: 12px 32px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      background: #7c3aed;
+      color: #fff;
+      transition: background .2s;
+    }
+    button:hover:not(:disabled) { background: #6d28d9; }
+    button:disabled { background: #444; color: #777; cursor: not-allowed; }
+
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+
+    .btn-export {
+      background: #065f46;
+      padding: 10px 22px;
+      font-size: 0.9rem;
+    }
+    .btn-export:hover:not(:disabled) { background: #047857; }
+
+    .btn-view {
+      background: #1e3a5f;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+    }
+    .btn-view:hover:not(:disabled) { background: #1e4a7f; }
+    .btn-view.active { background: #2563eb; }
+
+    .params {
+      background: #2a2a3e;
+      border-radius: 10px;
+      padding: 18px 24px;
+      max-width: 480px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .param-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .param-row label {
+      width: 90px;
+      font-size: 0.85rem;
+      color: #c4b5fd;
+      flex-shrink: 0;
+    }
+    .param-row input[type=range] {
+      flex: 1;
+      accent-color: #7c3aed;
+    }
+    .param-val {
+      width: 64px;
+      background: #1a1a2e;
+      border: 1px solid #444;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 0.85rem;
+      padding: 4px 8px;
+      text-align: right;
+    }
+    .param-unit {
+      font-size: 0.78rem;
+      color: #666;
+      width: 24px;
+    }
+
+    #status {
+      font-size: 0.9rem;
+      color: #a78bfa;
+      min-height: 1.4em;
+      text-align: center;
+    }
+
+    #viewer-canvas {
+      width: 100%;
+      max-width: 600px;
+      height: 480px;
+      border-radius: 12px;
+      background: #f0f2f5;
+      display: none;
+    }
+
+    .info-box {
+      background: #2a2a3e;
+      border-radius: 8px;
+      padding: 14px 20px;
+      font-size: 0.82rem;
+      color: #bbb;
+      max-width: 480px;
+      width: 100%;
+      line-height: 1.7;
+    }
+    .info-box strong { color: #c4b5fd; }
+
+    .viewer-controls {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    .section-label {
+      font-size: 0.78rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: -4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 3×3 打印公差测试</h1>
+  <p class="sub">包含全部连接形式：角件(2插槽)、边件(3插槽)、中心件(4插槽)</p>
+
+  <!-- 色块预览 -->
+  <div class="preview-grid" id="preview-grid"></div>
+
+  <div class="info-box">
+    <strong>测试覆盖：</strong><br>
+    角件 ×4 — 2个插 + 2个槽<br>
+    边件 ×4 — 2个插 + 1个槽 / 1个插 + 2个槽<br>
+    中心件 ×1 — 2个插 + 2个槽（四面全连接）
+  </div>
+
+  <!-- 参数面板 -->
+  <div class="params">
+    <div class="param-row">
+      <label>零件高度</label>
+      <input type="range" id="height-range" min="10" max="80" step="0.5" value="37.625">
+      <input type="number" id="height-val" class="param-val" min="10" max="80" step="0.5" value="37.625">
+      <span class="param-unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>插公差</label>
+      <input type="range" id="clear-range" min="0" max="0.8" step="0.05" value="0.2">
+      <input type="number" id="clear-val" class="param-val" min="0" max="0.8" step="0.05" value="0.2">
+      <span class="param-unit">mm</span>
+    </div>
+  </div>
+
+  <button id="gen-btn">⚙ 生成 3D 模型</button>
+  <div id="status"></div>
+
+  <canvas id="viewer-canvas"></canvas>
+
+  <!-- 生成完毕后出现的控制面板 -->
+  <div class="viewer-controls" id="viewer-controls">
+
+    <!-- 分解动画 -->
+    <div class="params" style="gap:12px">
+      <div class="section-label">🔩 分解动画</div>
+      <div class="param-row">
+        <label>分解距离</label>
+        <input type="range" id="explode-range" min="0" max="80" step="1" value="0">
+        <input type="number" id="explode-val" class="param-val" min="0" max="80" step="1" value="0">
+        <span class="param-unit">mm</span>
+      </div>
+    </div>
+
+    <!-- 视角预设 -->
+    <div class="params" style="gap:12px">
+      <div class="section-label">🎥 视角预设</div>
+      <div class="btn-row">
+        <button class="btn-view active" id="view-persp">🎲 透视</button>
+        <button class="btn-view"        id="view-top">🔭 俯视</button>
+        <button class="btn-view"        id="view-front">⬛ 正视</button>
+        <button class="btn-view"        id="view-side">◀ 侧视</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn-view" id="btn-xray">👁 X光透视</button>
+      </div>
+    </div>
+
+    <!-- 导出 -->
+    <div class="btn-row">
+      <button class="btn-export" id="btn-parts">⬇ 导出各零件 STL</button>
+      <button class="btn-export" id="btn-merged">⬇ 导出合并 STL</button>
+    </div>
+
+  </div>
+
+  <script type="module">
+    import {
+      generatePieces, initViewer, showPieces,
+      exportAllSTL, exportMergedSTL, loadModels,
+      getCamera, getControls,
+    } from '/model3d.js';
+
+    // ── 3×3 像素数据 ──────────────────────────────────────────────────────────
+    const BOX_W = 8.063;
+    const BOX_D = 8.062;
+
+    const COLORS = [
+      '#E53935', '#43A047', '#1E88E5',
+      '#FDD835', '#FB8C00', '#8E24AA',
+      '#00ACC1', '#D81B60', '#6D4C41',
+    ];
+
+    const rawPixels = [];
+    for (let row = 0; row < 3; row++)
+      for (let col = 0; col < 3; col++)
+        rawPixels.push({ row, col, color: COLORS[row * 3 + col] });
+
+    const occupied = new Set(rawPixels.map(p => `${p.row},${p.col}`));
+    const pixels = rawPixels.map(p => ({
+      row: p.row,
+      col: p.col,
+      color: p.color,
+      x: p.col * BOX_W,
+      y: p.row * BOX_D,
+      neighbors: {
+        right:  occupied.has(`${p.row},${p.col + 1}`),
+        left:   occupied.has(`${p.row},${p.col - 1}`),
+        bottom: occupied.has(`${p.row + 1},${p.col}`),
+        top:    occupied.has(`${p.row - 1},${p.col}`),
+      },
+    }));
+
+    const pixelData = { cols: 3, rows: 3, boxW: BOX_W, boxD: BOX_D, pixels };
+
+    // ── 预览色块 ──────────────────────────────────────────────────────────────
+    const previewGrid = document.getElementById('preview-grid');
+    pixels.forEach(({ color, neighbors }) => {
+      const cell = document.createElement('div');
+      cell.className = 'preview-cell';
+      cell.style.background = color;
+      cell.textContent = [
+        neighbors.top    ? '↑' : '',
+        neighbors.right  ? '→' : '',
+        neighbors.bottom ? '↓' : '',
+        neighbors.left   ? '←' : '',
+      ].filter(Boolean).join('');
+      previewGrid.appendChild(cell);
+    });
+
+    // ── 工具：range ↔ number 联动 ─────────────────────────────────────────────
+    function syncRange(rangeId, valId, onChange) {
+      const r = document.getElementById(rangeId);
+      const v = document.getElementById(valId);
+      r.addEventListener('input', () => { v.value = r.value; onChange?.(parseFloat(r.value)); });
+      v.addEventListener('change', () => {
+        r.value = Math.min(+r.max, Math.max(+r.min, +v.value));
+        v.value = r.value;
+        onChange?.(parseFloat(r.value));
+      });
+    }
+
+    syncRange('height-range', 'height-val');
+    syncRange('clear-range',  'clear-val');
+
+    // ── 状态 ──────────────────────────────────────────────────────────────────
+    const genBtn     = document.getElementById('gen-btn');
+    const statusEl   = document.getElementById('status');
+    const canvas     = document.getElementById('viewer-canvas');
+    const viewerCtrl = document.getElementById('viewer-controls');
+    const BASE_H     = 37.625;
+
+    let pieces       = null;
+    let pieceSlots   = [];   // { mesh, assembledX, assembledY, assembledZ, nx, ny }
+    let xrayActive   = false;
+
+    // ── 生成按钮 ──────────────────────────────────────────────────────────────
+    genBtn.addEventListener('click', async () => {
+      genBtn.disabled = true;
+      viewerCtrl.style.display = 'none';
+      canvas.style.display = 'none';
+      statusEl.textContent = '加载模型文件…';
+
+      // 重置分解滑块
+      document.getElementById('explode-range').value = 0;
+      document.getElementById('explode-val').value   = 0;
+
+      const targetH   = parseFloat(document.getElementById('height-val').value);
+      const plugClear = parseFloat(document.getElementById('clear-val').value);
+      const zScale    = targetH / BASE_H;
+
+      try {
+        await loadModels();
+        statusEl.textContent = `生成中（高度 ${targetH}mm，插公差 ±${plugClear}mm）…`;
+
+        pieces = await generatePieces(pixelData, msg => {
+          statusEl.textContent = msg;
+        }, { zScale, plugClearance: plugClear });
+
+        canvas.style.display = 'block';
+        initViewer(canvas, { theme: 'light' });
+        showPieces(pieces);
+        xrayActive = false;
+        applyXray(false);
+        document.getElementById('btn-xray').classList.remove('active');
+
+        // 记录 showPieces 设置完 mesh.position 之后的组装位置
+        // 以及每个零件从 3×3 中心 (1,1) 向外的方向向量
+        const CENTER_ROW = 1, CENTER_COL = 1;
+        pieceSlots = pieces.map(({ mesh, row, col }) => {
+          const dx  = col - CENTER_COL;
+          const dy  = row - CENTER_ROW;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          return {
+            mesh,
+            assembledX: mesh.position.x,
+            assembledY: mesh.position.y,
+            assembledZ: mesh.position.z,
+            nx: dx / len,
+            ny: dy / len,
+          };
+        });
+
+        viewerCtrl.style.display = 'flex';
+        setActiveView('persp');
+        statusEl.textContent =
+          `✅ 完成！${pieces.length} 个零件 · 高度 ${targetH}mm · 插公差 ±${plugClear}mm`;
+      } catch (err) {
+        statusEl.textContent = `❌ 出错：${err.message}`;
+        console.error(err);
+      } finally {
+        genBtn.disabled = false;
+      }
+    });
+
+    // ── 分解动画 ──────────────────────────────────────────────────────────────
+    function applyExplode(amount) {
+      if (!pieceSlots.length) return;
+      pieceSlots.forEach(({ mesh, assembledX, assembledY, assembledZ, nx, ny }) => {
+        mesh.position.set(
+          assembledX + nx * amount,
+          assembledY + ny * amount,
+          assembledZ,
+        );
+      });
+    }
+
+    syncRange('explode-range', 'explode-val', applyExplode);
+
+    // ── 视角预设（带缓动的相机动画）─────────────────────────────────────────
+    // pos/target/up 使用 3×3 网格的实际尺寸估算：约 26mm × 26mm，高度 ~38mm
+    const VIEWS = {
+      persp: { pos: [40, -60, 80],   target: [0, 0, 0],  up: [0, 0, 1] },
+      top:   { pos: [0,   0,  160],  target: [0, 0, 0],  up: [0, 1, 0] },
+      front: { pos: [0, -130, 20],   target: [0, 0, 20], up: [0, 0, 1] },
+      side:  { pos: [130,  0, 20],   target: [0, 0, 20], up: [0, 0, 1] },
+    };
+
+    let lerpRaf  = null;
+    function setActiveView(name) {
+      document.querySelectorAll('.btn-view').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById(`view-${name}`);
+      if (btn) btn.classList.add('active');
+    }
+
+    function lerpToView(name) {
+      const cam  = getCamera();
+      const ctrl = getControls();
+      if (!cam || !ctrl) return;
+      setActiveView(name);
+
+      const v = VIEWS[name];
+      // Snapshot start values
+      const sp = [cam.position.x, cam.position.y, cam.position.z];
+      const st = [ctrl.target.x,  ctrl.target.y,  ctrl.target.z];
+      const su = [cam.up.x,       cam.up.y,       cam.up.z];
+
+      const DURATION = 600;
+      const t0 = performance.now();
+      if (lerpRaf) cancelAnimationFrame(lerpRaf);
+
+      function tick(now) {
+        const raw = Math.min((now - t0) / DURATION, 1);
+        // ease-in-out cubic
+        const t = raw < 0.5 ? 4*raw*raw*raw : 1 - (-2*raw+2)**3/2;
+
+        cam.position.set(
+          sp[0] + (v.pos[0]    - sp[0]) * t,
+          sp[1] + (v.pos[1]    - sp[1]) * t,
+          sp[2] + (v.pos[2]    - sp[2]) * t,
+        );
+        ctrl.target.set(
+          st[0] + (v.target[0] - st[0]) * t,
+          st[1] + (v.target[1] - st[1]) * t,
+          st[2] + (v.target[2] - st[2]) * t,
+        );
+        cam.up.set(
+          su[0] + (v.up[0]     - su[0]) * t,
+          su[1] + (v.up[1]     - su[1]) * t,
+          su[2] + (v.up[2]     - su[2]) * t,
+        );
+        cam.up.normalize();
+        ctrl.update();
+
+        if (raw < 1) lerpRaf = requestAnimationFrame(tick);
+        else         lerpRaf = null;
+      }
+      lerpRaf = requestAnimationFrame(tick);
+    }
+
+    document.getElementById('view-persp').addEventListener('click', () => lerpToView('persp'));
+    document.getElementById('view-top').addEventListener('click',   () => lerpToView('top'));
+    document.getElementById('view-front').addEventListener('click', () => lerpToView('front'));
+    document.getElementById('view-side').addEventListener('click',  () => lerpToView('side'));
+
+    // ── X光透视模式 ───────────────────────────────────────────────────────────
+    // 将每个零件材质设为半透明，从俯视/侧视可以看到内部插槽位置关系
+    function applyXray(on) {
+      if (!pieces) return;
+      pieces.forEach(({ mesh }) => {
+        mesh.material.transparent = on;
+        mesh.material.opacity     = on ? 0.28 : 1.0;
+        mesh.material.depthWrite  = !on;   // 半透明时关闭深度写入，避免遮挡伪影
+        mesh.material.needsUpdate = true;
+      });
+    }
+
+    document.getElementById('btn-xray').addEventListener('click', () => {
+      xrayActive = !xrayActive;
+      applyXray(xrayActive);
+      document.getElementById('btn-xray').classList.toggle('active', xrayActive);
+    });
+
+    // ── 导出 ──────────────────────────────────────────────────────────────────
+    document.getElementById('btn-parts').addEventListener('click',  () => { if (pieces) exportAllSTL(pieces); });
+    document.getElementById('btn-merged').addEventListener('click', () => { if (pieces) exportMergedSTL(pieces); });
+  </script>
+</body>
+</html>

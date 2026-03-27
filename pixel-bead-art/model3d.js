@@ -21,6 +21,9 @@ const SLOT_HALF_PEN = 5.134 / 2;   // 2.567   penetration (Y natural, X after 90
 const PLUG_HALF_PRO = 4.067 / 2;   // 2.0335  protrusion  (Y natural, X after 90°Z rot)
 const EPSILON       = 0.5;         // overlap to avoid coplanar faces
 const PRINT_GAP     = 0.3;         // physical gap between adjacent box faces (prevents fusing when printing)
+const PLUG_CLEARANCE = 0.2;        // mm reduction per side on plug (print tolerance for plug-slot fit)
+// Uniform scale derived from protrusion dimension (4.067mm) → reduces all sides by ~PLUG_CLEARANCE
+const PLUG_SCALE    = (4.067 - 2 * PLUG_CLEARANCE) / 4.067;  // ≈ 0.902
 
 const ROT_90Z  = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
 // For BOTTOM plug: rotate 180° around Z to flip which end (base vs tip) faces the box
@@ -109,8 +112,11 @@ async function loadCenteredGeom(url) {
 }
 
 // ── Bake rotation + translation into a geometry clone ─────────────────────────
-function positionedGeom(template, rotMatrix, tx, ty, tz) {
+function positionedGeom(template, rotMatrix, tx, ty, tz, scale = 1, zScale = 1) {
   const g = template.clone();
+  if (scale !== 1 || zScale !== 1) {
+    g.applyMatrix4(new THREE.Matrix4().makeScale(scale, scale, scale * zScale));
+  }
   if (rotMatrix) g.applyMatrix4(rotMatrix);
   g.applyMatrix4(new THREE.Matrix4().makeTranslation(tx, ty, tz));
   return g;
@@ -126,9 +132,19 @@ export async function loadModels() {
 }
 
 // ── Generate all pieces ───────────────────────────────────────────────────────
-export async function generatePieces(pixelData, onProgress) {
+// opts.zScale       — scale box/slot/plug in Z (height). default 1
+// opts.plugClearance — mm reduction per side on plug cross-section. default PLUG_CLEARANCE
+export async function generatePieces(pixelData, onProgress, opts = {}) {
   if (!baseGeomTemplate) await loadModels();
   await initManifold();
+
+  const {
+    zScale       = 1,
+    plugClearance = PLUG_CLEARANCE,
+  } = opts;
+
+  // Recompute plug scale from the provided clearance value
+  const pScale = (4.067 - 2 * plugClearance) / 4.067;
 
   const { pixels, boxW, boxD } = pixelData;
   const pieces = [];
@@ -146,33 +162,33 @@ export async function generatePieces(pixelData, onProgress) {
     const cz = 0;
 
     // Start with base box as Manifold solid
-    let m = geomToManifold(positionedGeom(baseGeomTemplate, null, cx, cy, cz));
+    let m = geomToManifold(positionedGeom(baseGeomTemplate, null, cx, cy, cz, 1, zScale));
 
     // ── RIGHT → PLUG (+X, rotate +90°Z: Y+base→X− at box face, Y−tip→X+ out)
     if (neighbors.right) {
       const px = cx + BOX_HW + PLUG_HALF_PRO - EPSILON;
-      const pm = geomToManifold(positionedGeom(plugGeomTemplate, ROT_90Z, px, cy, cz));
+      const pm = geomToManifold(positionedGeom(plugGeomTemplate, ROT_90Z, px, cy, cz, pScale, zScale));
       m = m.add(pm);
     }
 
     // ── LEFT → SLOT (−X, rotate 90°Z) ─────────────────────────────────────
     if (neighbors.left) {
       const sx = cx - BOX_HW + SLOT_HALF_PEN - EPSILON;
-      const sm = geomToManifold(positionedGeom(slotGeomTemplate, ROT_90Z, sx, cy, cz));
+      const sm = geomToManifold(positionedGeom(slotGeomTemplate, ROT_90Z, sx, cy, cz, 1, zScale));
       m = m.subtract(sm);
     }
 
     // ── BOTTOM → PLUG (+Y, ROT_180Z: Y+base→Y− at box face, Y−tip→Y+ out)
     if (neighbors.bottom) {
       const py = cy + BOX_HD + PLUG_HALF_PRO - EPSILON;
-      const pm = geomToManifold(positionedGeom(plugGeomTemplate, ROT_180Z, cx, py, cz));
+      const pm = geomToManifold(positionedGeom(plugGeomTemplate, ROT_180Z, cx, py, cz, pScale, zScale));
       m = m.add(pm);
     }
 
     // ── TOP → SLOT (−Y, no rotation) ──────────────────────────────────────
     if (neighbors.top) {
       const sy = cy - BOX_HD + SLOT_HALF_PEN - EPSILON;
-      const sm = geomToManifold(positionedGeom(slotGeomTemplate, null, cx, sy, cz));
+      const sm = geomToManifold(positionedGeom(slotGeomTemplate, null, cx, sy, cz, 1, zScale));
       m = m.subtract(sm);
     }
 
@@ -191,7 +207,10 @@ export async function generatePieces(pixelData, onProgress) {
 }
 
 // ── Three.js viewer ───────────────────────────────────────────────────────────
-export function initViewer(canvas) {
+// opts.theme: 'dark' (default) | 'light'
+export function initViewer(canvas, opts = {}) {
+  const light = opts.theme === 'light';
+
   if (animId !== null) { cancelAnimationFrame(animId); animId = null; }
   if (renderer) renderer.dispose();
 
@@ -201,22 +220,26 @@ export function initViewer(canvas) {
   renderer.shadowMap.enabled = true;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1a2e);
+  scene.background = new THREE.Color(light ? 0xf0f2f5 : 0x1a1a2e);
 
   camera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 2000);
   camera.position.set(40, -60, 80);
   camera.lookAt(0, 0, 0);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  // Lighting: brighter + neutral for light theme
+  scene.add(new THREE.AmbientLight(0xffffff, light ? 1.0 : 0.5));
+  const dir = new THREE.DirectionalLight(0xffffff, light ? 1.5 : 1.2);
   dir.position.set(50, -80, 120);
   dir.castShadow = true;
   scene.add(dir);
-  const fillLight = new THREE.DirectionalLight(0x8888ff, 0.3);
+  const fillLight = new THREE.DirectionalLight(light ? 0xffffff : 0x8888ff, light ? 0.6 : 0.3);
   fillLight.position.set(-50, 60, 20);
   scene.add(fillLight);
 
-  const grid = new THREE.GridHelper(200, 40, 0x333355, 0x222244);
+  const grid = new THREE.GridHelper(200, 40,
+    light ? 0xbbbbcc : 0x333355,
+    light ? 0xddddee : 0x222244,
+  );
   grid.rotation.x = Math.PI / 2;
   scene.add(grid);
 
@@ -238,6 +261,11 @@ export function initViewer(canvas) {
   }
   animate();
 }
+
+// ── Expose camera / controls for external animation ───────────────────────────
+export function getCamera()   { return camera; }
+export function getControls() { return controls; }
+export function getScene()    { return scene; }
 
 // ── Show pieces in viewer ─────────────────────────────────────────────────────
 export function showPieces(pieces) {

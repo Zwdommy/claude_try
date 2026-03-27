@@ -379,3 +379,34 @@ header p { color: var(--text-muted); font-size: 0.95rem; }
 }
 .btn-export-parts { border-color: #f59e0b44; }
 .btn-export-parts:hover { border-color: #f59e0b; }
+
+/* ── 小鼻嘎模式 ─────────────────────────────────────────────────── */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-small-mode {
+  padding: 8px 16px;
+  background: var(--surface2);
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+.btn-small-mode:hover {
+  border-color: #f97316;
+  color: #f97316;
+}
+.btn-small-mode.active {
+  background: #f9731622;
+  border: 1.5px solid #f97316;
+  color: #f97316;
+  font-weight: 600;
+}

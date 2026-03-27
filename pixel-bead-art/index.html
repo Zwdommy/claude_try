@@ -22,16 +22,21 @@
               <div class="dropzone-inner" id="dropzone-inner">
                 <div class="upload-icon">📁</div>
                 <p class="upload-hint">点击或拖拽图片到此处</p>
-                <p class="upload-sub">支持 JPG、PNG 格式</p>
+                <p class="upload-sub">支持 JPG、PNG、SVG 格式</p>
               </div>
               <img id="preview-img" class="preview-img hidden" alt="原始图片" />
             </div>
-            <input type="file" id="file-input" accept=".jpg,.jpeg,.png" hidden />
+            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.svg,image/svg+xml" hidden />
 
-            <button id="generate-btn" disabled>
-              <span id="btn-text">生成拼豆图</span>
-              <span id="btn-spinner" class="spinner hidden"></span>
-            </button>
+            <div class="btn-row">
+              <button id="generate-btn" disabled>
+                <span id="btn-text">生成拼豆图</span>
+                <span id="btn-spinner" class="spinner hidden"></span>
+              </button>
+              <button id="small-mode-btn" class="btn-small-mode" title="限制像素点 ≤ 100，适合快速打印">
+                🐣 小鼻嘎模式
+              </button>
+            </div>
           </div>
         </div>
 
