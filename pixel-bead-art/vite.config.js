@@ -17,10 +17,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/meshy-asset/, ''),
       },
-      '/moonshot-proxy': {
-        target: 'https://api.moonshot.cn',
+      '/gemini-proxy': {
+        target: 'https://synai996.space',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/moonshot-proxy/, ''),
+        rewrite: (path) => path.replace(/^\/gemini-proxy/, ''),
         timeout: 120000,
         proxyTimeout: 120000,
       },

@@ -3,9 +3,9 @@ import { generatePieces, initViewer, showPieces, exportAllSTL, exportMergedSTL, 
 const MESHY_BASE  = 'https://api.meshy.ai';
 const MESHY_KEY   = 'msy_nuoda1IScPx06JIZHvNuhN38WDYPE7z4gTrC';
 
-const MOONSHOT_BASE  = '/moonshot-proxy';
-const MOONSHOT_KEY   = 'sk-l7fd9b3nKS2FN1fVtVfQIJTWOuhBaUjSNiNn8JEKegu5aimh';
-const MOONSHOT_MODEL = 'moonshot-v1-32k-vision-preview';
+const GEMINI_BASE  = '/gemini-proxy';
+const GEMINI_KEY   = 'sk-fZlBimZDWmOFqZcA1jZEJiEXP75T1Ae3E04CDLcYrn410aHO';
+const GEMINI_MODEL = 'gemini-3.1-pro-high';
 
 const VARIANTS = [
   { prompt: 'pixel bead art, extremely coarse 10x10 pixel grid, very large square pixels, flat bold colors, no gradients, retro 8-bit style' },
@@ -152,7 +152,7 @@ generateBtn.addEventListener('click', async () => {
     resultsGrid.classList.remove('hidden');
 
     hideProgress();
-    showStatus('完成！点击任意图片下方的「Kimi 分析」按钮', 'info');
+    showStatus('完成！点击任意图片下方的「Gemini 分析」按钮', 'info');
   } catch (err) {
     console.error('[pixel-bead] error:', err);
     hideProgress();
@@ -265,9 +265,9 @@ function buildCard(index, imageUrl) {
 
   const geminiBtn = document.createElement('button');
   geminiBtn.className = 'btn-gemini';
-  geminiBtn.textContent = 'Kimi 分析';
-  // Pass original CDN URL to Kimi (server-to-server fetch, no CORS issue)
-  geminiBtn.addEventListener('click', () => analyzeWithMoonshot(imageUrl, index));
+  geminiBtn.textContent = 'Gemini 分析';
+  // Pass original CDN URL to Gemini (server-to-server fetch, no CORS issue)
+  geminiBtn.addEventListener('click', () => analyzeWithGemini(imageUrl, index));
 
   actions.appendChild(dlBtn);
   actions.appendChild(geminiBtn);
@@ -278,35 +278,31 @@ function buildCard(index, imageUrl) {
   return card;
 }
 
-// ── Moonshot (Kimi) ───────────────────────────────────────────────────────────
+// ── Gemini ────────────────────────────────────────────────────────────────────
 
-async function analyzeWithMoonshot(imageUrl, cardIndex) {
+async function analyzeWithGemini(imageUrl, cardIndex) {
   geminiSection.classList.remove('hidden');
   geminiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   pixelCanvas.classList.add('hidden');
   pixelInfo.textContent   = '';
-  setGeminiStatus('下载图片并发送给 Kimi，请稍候…');
+  setGeminiStatus('发送给 Gemini，请稍候…');
 
   try {
-    // Moonshot 不支持任意外部 URL，需先在客户端通过代理下载图片转 base64
-    const proxyUrl = imageUrl.replace('https://assets.meshy.ai', '/meshy-asset');
-    const base64DataUri = await urlToBase64(proxyUrl);
-
-    const res = await fetch(`${MOONSHOT_BASE}/v1/chat/completions`, {
+    // Send the CDN URL directly — Gemini fetches it server-side, no CORS/base64 needed
+    const res = await fetch(`${GEMINI_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${MOONSHOT_KEY}`,
+        'Authorization': `Bearer ${GEMINI_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: MOONSHOT_MODEL,
-        max_tokens: 4096,
+        model: GEMINI_MODEL,
         messages: [{
           role: 'user',
           content: [
             {
               type: 'image_url',
-              image_url: { url: base64DataUri },
+              image_url: { url: imageUrl },
             },
             {
               type: 'text',
@@ -331,26 +327,17 @@ async function analyzeWithMoonshot(imageUrl, cardIndex) {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(`Kimi 错误 ${res.status}：${body.error?.message || JSON.stringify(body)}`);
+      throw new Error(`Gemini 错误 ${res.status}：${body.error?.message || JSON.stringify(body)}`);
     }
 
     const data    = await res.json();
     const rawText = data.choices?.[0]?.message?.content ?? '';
-    const finishReason = data.choices?.[0]?.finish_reason;
-    console.log('[moonshot] finish_reason:', finishReason);
-    console.log('[moonshot] rawText:', rawText.slice(0, 300));
 
-    if (finishReason === 'length') {
-      throw new Error('Kimi 回复被截断（像素数量过多），请尝试小鼻嘎模式');
-    }
+    // Extract JSON (may be wrapped in ```json ... ```)
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Gemini 未返回有效 JSON');
 
-    // 提取 JSON：从第一个 { 到最后一个 } 的平衡匹配
-    const start = rawText.indexOf('{');
-    const end   = rawText.lastIndexOf('}');
-    if (start === -1 || end === -1 || end <= start) throw new Error('Kimi 未返回有效 JSON');
-    const jsonStr = rawText.slice(start, end + 1);
-
-    const pixelData = JSON.parse(jsonStr);
+    const pixelData = JSON.parse(jsonMatch[0]);
     if (!pixelData.cols || !pixelData.rows || !Array.isArray(pixelData.pixels)) {
       throw new Error('JSON 格式不正确');
     }
@@ -364,8 +351,8 @@ async function analyzeWithMoonshot(imageUrl, cardIndex) {
     renderPixelCanvas(pixelData);
     if (!smallMode || pixelData.pixels.length <= 100) setGeminiStatus('');
   } catch (err) {
-    console.error('[moonshot]', err);
-    setGeminiStatus(`Kimi 出错：${err.message}`, true);
+    console.error('[gemini]', err);
+    setGeminiStatus(`Gemini 出错：${err.message}`, true);
   }
 }
 
