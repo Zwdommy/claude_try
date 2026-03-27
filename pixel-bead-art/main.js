@@ -300,6 +300,7 @@ async function analyzeWithMoonshot(imageUrl, cardIndex) {
       },
       body: JSON.stringify({
         model: MOONSHOT_MODEL,
+        max_tokens: 4096,
         messages: [{
           role: 'user',
           content: [
@@ -335,12 +336,21 @@ async function analyzeWithMoonshot(imageUrl, cardIndex) {
 
     const data    = await res.json();
     const rawText = data.choices?.[0]?.message?.content ?? '';
+    const finishReason = data.choices?.[0]?.finish_reason;
+    console.log('[moonshot] finish_reason:', finishReason);
+    console.log('[moonshot] rawText:', rawText.slice(0, 300));
 
-    // Extract JSON (may be wrapped in ```json ... ```)
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Kimi 未返回有效 JSON');
+    if (finishReason === 'length') {
+      throw new Error('Kimi 回复被截断（像素数量过多），请尝试小鼻嘎模式');
+    }
 
-    const pixelData = JSON.parse(jsonMatch[0]);
+    // 提取 JSON：从第一个 { 到最后一个 } 的平衡匹配
+    const start = rawText.indexOf('{');
+    const end   = rawText.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) throw new Error('Kimi 未返回有效 JSON');
+    const jsonStr = rawText.slice(start, end + 1);
+
+    const pixelData = JSON.parse(jsonStr);
     if (!pixelData.cols || !pixelData.rows || !Array.isArray(pixelData.pixels)) {
       throw new Error('JSON 格式不正确');
     }
