@@ -285,10 +285,13 @@ async function analyzeWithMoonshot(imageUrl, cardIndex) {
   geminiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   pixelCanvas.classList.add('hidden');
   pixelInfo.textContent   = '';
-  setGeminiStatus('发送给 Kimi，请稍候…');
+  setGeminiStatus('下载图片并发送给 Kimi，请稍候…');
 
   try {
-    // Send the CDN URL directly — Kimi fetches it server-side, no CORS/base64 needed
+    // Moonshot 不支持任意外部 URL，需先在客户端通过代理下载图片转 base64
+    const proxyUrl = imageUrl.replace('https://assets.meshy.ai', '/meshy-asset');
+    const base64DataUri = await urlToBase64(proxyUrl);
+
     const res = await fetch(`${MOONSHOT_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -302,7 +305,7 @@ async function analyzeWithMoonshot(imageUrl, cardIndex) {
           content: [
             {
               type: 'image_url',
-              image_url: { url: imageUrl },
+              image_url: { url: base64DataUri },
             },
             {
               type: 'text',
