@@ -5,7 +5,7 @@ const MESHY_KEY   = 'msy_nuoda1IScPx06JIZHvNuhN38WDYPE7z4gTrC';
 
 const MOONSHOT_BASE  = '/moonshot-proxy';
 const MOONSHOT_KEY   = 'sk-l7fd9b3nKS2FN1fVtVfQIJTWOuhBaUjSNiNn8JEKegu5aimh';
-const MOONSHOT_MODEL = 'moonshot-v1-8k';
+const MOONSHOT_MODEL = 'moonshot-v1-32k-vision-preview';
 
 const VARIANTS = [
   { prompt: 'pixel bead art, extremely coarse 10x10 pixel grid, very large square pixels, flat bold colors, no gradients, retro 8-bit style' },
