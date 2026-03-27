@@ -291,3 +291,91 @@ header p { color: var(--text-muted); font-size: 0.95rem; }
 }
 
 .hidden { display: none !important; }
+
+/* ── 3D model section ───────────────────────────────────────────── */
+.model3d-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.model3d-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.model3d-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.3px;
+}
+
+.model3d-info {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.model3d-status {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  text-align: center;
+  min-height: 1.2em;
+}
+
+.btn-gen3d {
+  align-self: center;
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-gen3d:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.btn-gen3d:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.viewer-canvas {
+  border-radius: 8px;
+  width: 100%;
+  height: 480px;
+  display: block;
+  background: #1a1a2e;
+  cursor: grab;
+}
+.viewer-canvas:active { cursor: grabbing; }
+
+.model3d-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-export {
+  padding: 10px 24px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.btn-export:hover {
+  background: var(--border);
+  border-color: var(--accent);
+}
+.btn-export-parts { border-color: #f59e0b44; }
+.btn-export-parts:hover { border-color: #f59e0b; }

@@ -1,7 +1,9 @@
+import { generatePieces, initViewer, showPieces, exportAllSTL, exportMergedSTL, loadModels } from '/model3d.js';
+
 const MESHY_BASE  = 'https://api.meshy.ai';
 const MESHY_KEY   = 'msy_nuoda1IScPx06JIZHvNuhN38WDYPE7z4gTrC';
 
-const GEMINI_BASE  = 'https://synai996.space';
+const GEMINI_BASE  = '/gemini-proxy';
 const GEMINI_KEY   = 'sk-fZlBimZDWmOFqZcA1jZEJiEXP75T1Ae3E04CDLcYrn410aHO';
 const GEMINI_MODEL = 'gemini-3.1-pro-high';
 
@@ -55,7 +57,20 @@ const geminiStatus  = document.getElementById('gemini-status');
 const pixelCanvas   = document.getElementById('pixel-canvas');
 const pixelInfo     = document.getElementById('pixel-info');
 
-let sourceImage = null;
+// ── 3D section refs ───────────────────────────────────────────────────────────
+const model3dSection      = document.getElementById('model3d-section');
+const model3dStatus       = document.getElementById('model3d-status');
+const model3dInfo         = document.getElementById('model3d-info');
+const model3dProgressWrap = document.getElementById('model3d-progress');
+const model3dProgressFill = document.getElementById('model3d-progress-fill');
+const model3dProgressText = document.getElementById('model3d-progress-text');
+const viewerCanvas        = document.getElementById('viewer-canvas');
+const model3dActions      = document.getElementById('model3d-actions');
+const exportMergedBtn     = document.getElementById('export-merged-btn');
+const exportPartsBtn      = document.getElementById('export-parts-btn');
+
+let sourceImage  = null;
+let cachedPieces = null; // last generated pieces
 
 // ── Upload / Drag-drop ────────────────────────────────────────────────────────
 dropzone.addEventListener('click', () => fileInput.click());
@@ -230,7 +245,8 @@ function buildCard(index, imageUrl) {
   const geminiBtn = document.createElement('button');
   geminiBtn.className = 'btn-gemini';
   geminiBtn.textContent = 'Gemini 分析';
-  geminiBtn.addEventListener('click', () => analyzeWithGemini(proxyUrl, index));
+  // Pass original CDN URL to Gemini (server-to-server fetch, no CORS issue)
+  geminiBtn.addEventListener('click', () => analyzeWithGemini(imageUrl, index));
 
   actions.appendChild(dlBtn);
   actions.appendChild(geminiBtn);
@@ -243,18 +259,15 @@ function buildCard(index, imageUrl) {
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
 
-async function analyzeWithGemini(proxyUrl, cardIndex) {
+async function analyzeWithGemini(imageUrl, cardIndex) {
   geminiSection.classList.remove('hidden');
   geminiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   pixelCanvas.classList.add('hidden');
   pixelInfo.textContent   = '';
-  setGeminiStatus(`正在加载图片 ${cardIndex}…`);
+  setGeminiStatus('发送给 Gemini，请稍候…');
 
   try {
-    const base64DataUri = await urlToBase64(proxyUrl);
-
-    setGeminiStatus('发送给 Gemini，请稍候…');
-
+    // Send the CDN URL directly — Gemini fetches it server-side, no CORS/base64 needed
     const res = await fetch(`${GEMINI_BASE}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -268,15 +281,20 @@ async function analyzeWithGemini(proxyUrl, cardIndex) {
           content: [
             {
               type: 'image_url',
-              image_url: { url: base64DataUri },
+              image_url: { url: imageUrl },
             },
             {
               type: 'text',
               text:
-                'This is pixel art. Identify the pixel grid — each "pixel" is a solid-colored square block.\n' +
+                'This is pixel art made of solid-colored square blocks arranged in a grid.\n' +
+                'Carefully identify every pixel block and its exact dominant color.\n' +
                 'Return ONLY a valid JSON object, no markdown, no explanation:\n' +
                 '{"cols":<int>,"rows":<int>,"pixels":[{"row":0,"col":0,"color":"#RRGGBB"},...]}' +
-                '\nList every single pixel, row by row, left to right.',
+                '\nRules:\n' +
+                '- color must be the most representative hex color of that block (e.g. "#FF3300"), never approximate to white/black unless the block truly is\n' +
+                '- EXCLUDE background pixels: do NOT include pixels that belong to the background, empty space, or plain backdrop surrounding the main subject\n' +
+                '- only include pixels that are part of the actual foreground subject\n' +
+                '- list included pixels row by row (top to bottom), left to right',
             },
           ],
         }],
@@ -310,9 +328,13 @@ async function analyzeWithGemini(proxyUrl, cardIndex) {
 
 // ── Canvas renderer ───────────────────────────────────────────────────────────
 
+// Physical box size from 初始长方体.stl (mm)
+const BOX_W = 8.063;
+const BOX_D = 8.062;
+
 function renderPixelCanvas(pixelData) {
   const { cols, rows, pixels } = pixelData;
-  const MAX_DIM  = 560;
+  const MAX_DIM   = 560;
   const blockSize = Math.max(1, Math.floor(MAX_DIM / Math.max(cols, rows)));
 
   pixelCanvas.width  = cols * blockSize;
@@ -326,12 +348,61 @@ function renderPixelCanvas(pixelData) {
     ctx.fillRect(col * blockSize, row * blockSize, blockSize, blockSize);
   }
 
-  // Record for future 3D use
-  window.pixelData = pixelData;
+  // ── Build enriched data for 3D algorithm ─────────────────────────────────
+  // Index pixel set for O(1) neighbor lookup
+  const occupied = new Set(pixels.map(p => `${p.row},${p.col}`));
 
-  const uniqueColors = new Set(pixels.map(p => p.color.toUpperCase())).size;
-  pixelInfo.textContent = `${cols} × ${rows} 格（共 ${pixels.length} 个像素，${uniqueColors} 种颜色）`;
+  const enriched = pixels.map(p => {
+    const { row, col, color } = p;
+    return {
+      row,
+      col,
+      color: color.toUpperCase(),          // normalise hex
+      x: col * BOX_W,                      // mm, left edge
+      y: row * BOX_D,                      // mm, top edge
+      neighbors: {
+        right:  occupied.has(`${row},${col + 1}`),
+        left:   occupied.has(`${row},${col - 1}`),
+        bottom: occupied.has(`${row + 1},${col}`),
+        top:    occupied.has(`${row - 1},${col}`),
+      },
+    };
+  });
+
+  window.pixelData = {
+    cols,
+    rows,
+    boxW: BOX_W,
+    boxD: BOX_D,
+    pixels: enriched,
+  };
+
+  const uniqueColors = new Set(enriched.map(p => p.color)).size;
+  pixelInfo.textContent =
+    `${cols} × ${rows} 格（共 ${enriched.length} 个像素，${uniqueColors} 种颜色）`;
   pixelCanvas.classList.remove('hidden');
+
+  // ── Show 3D generate button ───────────────────────────────────────────────
+  model3dSection.classList.remove('hidden');
+  model3dStatus.textContent = '像素数据已就绪，点击下方按钮生成 3D 模型';
+  viewerCanvas.classList.add('hidden');
+  model3dActions.classList.add('hidden');
+  cachedPieces = null;
+
+  // Show generate button (injected once)
+  let gen3dBtn = document.getElementById('gen3d-btn');
+  if (!gen3dBtn) {
+    gen3dBtn = document.createElement('button');
+    gen3dBtn.id        = 'gen3d-btn';
+    gen3dBtn.className = 'btn-gen3d';
+    gen3dBtn.textContent = '🧱 生成 3D 模型';
+    model3dSection.insertBefore(gen3dBtn, model3dProgressWrap);
+    gen3dBtn.addEventListener('click', handleGenerate3D);
+  }
+  gen3dBtn.disabled = false;
+
+  // Preload models in background
+  loadModels().catch(() => {});
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
@@ -365,3 +436,66 @@ function showStatus(msg, type = 'info') {
 function hideStatus() {
   statusBar.classList.add('hidden');
 }
+
+// ── 3D generation ─────────────────────────────────────────────────────────────
+
+async function handleGenerate3D() {
+  const data = window.pixelData;
+  if (!data) return;
+
+  const gen3dBtn = document.getElementById('gen3d-btn');
+  gen3dBtn.disabled = true;
+  model3dActions.classList.add('hidden');
+  viewerCanvas.classList.add('hidden');
+
+  // Show progress
+  model3dProgressWrap.classList.remove('hidden');
+  model3dProgressFill.style.width = '0%';
+  model3dProgressText.textContent  = '加载模型文件…';
+  model3dStatus.textContent = '';
+
+  let pieces;
+  try {
+    let step = 0;
+    const total = data.pixels.length;
+
+    pieces = await generatePieces(data, (msg) => {
+      // Parse progress from message like "正在生成零件 N / M…"
+      const m = msg.match(/(\d+)\s*\/\s*(\d+)/);
+      if (m) {
+        const pct = Math.round((parseInt(m[1]) / parseInt(m[2])) * 100);
+        model3dProgressFill.style.width = `${pct}%`;
+      }
+      model3dProgressText.textContent = msg;
+    });
+
+    cachedPieces = pieces;
+    model3dInfo.textContent = `${pieces.length} 个零件`;
+
+    // Make canvas visible first so clientWidth/clientHeight are valid
+    viewerCanvas.classList.remove('hidden');
+    viewerCanvas.style.width  = '100%';
+    viewerCanvas.style.height = '480px';
+    await new Promise(r => setTimeout(r, 50)); // let browser lay out canvas
+    initViewer(viewerCanvas);
+    showPieces(pieces);
+
+    model3dProgressWrap.classList.add('hidden');
+    model3dActions.classList.remove('hidden');
+    model3dStatus.textContent = '✅ 生成完成，可旋转查看';
+    gen3dBtn.disabled = false;
+  } catch (err) {
+    console.error('[3D]', err);
+    model3dProgressWrap.classList.add('hidden');
+    model3dStatus.textContent = `❌ 生成失败：${err.message}`;
+    gen3dBtn.disabled = false;
+  }
+}
+
+exportMergedBtn.addEventListener('click', () => {
+  if (cachedPieces) exportMergedSTL(cachedPieces);
+});
+
+exportPartsBtn.addEventListener('click', () => {
+  if (cachedPieces) exportAllSTL(cachedPieces);
+});

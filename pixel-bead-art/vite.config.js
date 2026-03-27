@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  optimizeDeps: {
+    exclude: ['manifold-3d'],
+  },
   server: {
     port: 5173,
     proxy: {
@@ -13,6 +16,13 @@ export default defineConfig({
         target: 'https://assets.meshy.ai',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/meshy-asset/, ''),
+      },
+      '/gemini-proxy': {
+        target: 'https://synai996.space',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/gemini-proxy/, ''),
+        timeout: 120000,
+        proxyTimeout: 120000,
       },
     },
   },

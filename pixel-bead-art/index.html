@@ -58,6 +58,26 @@
           <canvas id="pixel-canvas" class="pixel-canvas hidden"></canvas>
         </div>
 
+        <!-- 3D 模型生成区 -->
+        <div id="model3d-section" class="model3d-section hidden">
+          <div class="model3d-header">
+            <span class="model3d-title">3D 模型生成</span>
+            <span id="model3d-info" class="model3d-info"></span>
+          </div>
+          <p id="model3d-status" class="model3d-status"></p>
+          <div id="model3d-progress" class="progress-wrap hidden">
+            <div class="progress-track">
+              <div class="progress-fill" id="model3d-progress-fill"></div>
+            </div>
+            <span id="model3d-progress-text">生成中…</span>
+          </div>
+          <canvas id="viewer-canvas" class="viewer-canvas hidden"></canvas>
+          <div id="model3d-actions" class="model3d-actions hidden">
+            <button id="export-merged-btn" class="btn-export">⬇ 导出合并 STL</button>
+            <button id="export-parts-btn"  class="btn-export btn-export-parts">⬇ 导出各零件 STL</button>
+          </div>
+        </div>
+
         <div id="status-bar" class="status-bar hidden"></div>
       </main>
     </div>

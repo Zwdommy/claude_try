@@ -10,5 +10,10 @@
   },
   "devDependencies": {
     "vite": "^8.0.1"
+  },
+  "dependencies": {
+    "manifold-3d": "^3.4.1",
+    "three": "^0.183.2",
+    "three-bvh-csg": "^0.0.18"
   }
 }
