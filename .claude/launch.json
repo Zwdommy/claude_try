@@ -11,7 +11,7 @@
       "name": "pixel-bead-art",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5173"],
-      "cwd": "/Users/tommy/claude_try/pixel-bead-art",
+      "cwd": "/Users/tommy/claude_try",
       "port": 5173
     }
   ]
