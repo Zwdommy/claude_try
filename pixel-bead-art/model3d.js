@@ -254,7 +254,7 @@ export async function generatePieces(pixelData, onProgress, opts = {}) {
 
     if (doSplit) {
       // Surface cap: thin box at the very top of the piece
-      const capCZ = fullH / 2 - surfaceThickness / 2;  // center Z (geometry is centered at cz=0)
+      const capCZ = fullH / 2 - surfaceThickness / 2 - 0.001;  // slight offset to avoid coplanar face with box top
       const cap = ManifoldCls.cube([BOX_HW * 2, BOX_HD * 2, surfaceThickness], true)
         .translate([cx, cy, capCZ]);
       surfaceManifold = m.intersect(cap);
