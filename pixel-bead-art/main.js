@@ -1,4 +1,4 @@
-import { generatePieces, initViewer, showPieces, exportAllSTL, exportMergedSTL, loadModels } from '/model3d.js';
+import { generatePieces, initViewer, showPieces, exportAllSTL, exportMergedSTL, export3MFColored, loadModels } from '/model3d.js';
 
 const MESHY_BASE  = 'https://api.meshy.ai';
 const MESHY_KEY   = 'msy_nuoda1IScPx06JIZHvNuhN38WDYPE7z4gTrC';
@@ -69,6 +69,33 @@ const geminiStatus  = document.getElementById('gemini-status');
 const pixelCanvas   = document.getElementById('pixel-canvas');
 const pixelInfo     = document.getElementById('pixel-info');
 
+// ── 3D param sliders (range ↔ number sync) ───────────────────────────────────
+function syncMpRange(rangeId, valId) {
+  const r = document.getElementById(rangeId);
+  const v = document.getElementById(valId);
+  if (!r || !v) return;
+  r.addEventListener('input',  () => { v.value = r.value; });
+  v.addEventListener('change', () => {
+    r.value = Math.min(+r.max, Math.max(+r.min, +v.value));
+    v.value = r.value;
+  });
+}
+syncMpRange('mp-height-r', 'mp-height-v');
+syncMpRange('mp-plugw-r',  'mp-plugw-v');
+syncMpRange('mp-head-r',   'mp-head-v');
+syncMpRange('mp-plugh-r',  'mp-plugh-v');
+syncMpRange('mp-surf-r',   'mp-surf-v');
+
+function getModelParams() {
+  const BASE_H = 37.625;
+  const targetH         = parseFloat(document.getElementById('mp-height-v')?.value ?? BASE_H);
+  const plugWidth       = parseFloat(document.getElementById('mp-plugw-v')?.value  ?? 4.263);
+  const headScale       = parseFloat(document.getElementById('mp-head-v')?.value   ?? 1);
+  const plugHeight      = parseFloat(document.getElementById('mp-plugh-v')?.value  ?? 6.1);
+  const surfaceThickness = parseFloat(document.getElementById('mp-surf-v')?.value  ?? 0.8);
+  return { zScale: targetH / BASE_H, plugWidth, headScale, plugHeight, surfaceThickness };
+}
+
 // ── 3D section refs ───────────────────────────────────────────────────────────
 const model3dSection      = document.getElementById('model3d-section');
 const model3dStatus       = document.getElementById('model3d-status');
@@ -80,6 +107,7 @@ const viewerCanvas        = document.getElementById('viewer-canvas');
 const model3dActions      = document.getElementById('model3d-actions');
 const exportMergedBtn     = document.getElementById('export-merged-btn');
 const exportPartsBtn      = document.getElementById('export-parts-btn');
+const export3mfBtn        = document.getElementById('export-3mf-btn');
 
 let sourceImage  = null;
 let cachedPieces = null; // last generated pieces
@@ -497,7 +525,7 @@ async function handleGenerate3D() {
         model3dProgressFill.style.width = `${pct}%`;
       }
       model3dProgressText.textContent = msg;
-    });
+    }, getModelParams());
 
     cachedPieces = pieces;
     model3dInfo.textContent = `${pieces.length} 个零件`;
@@ -528,4 +556,8 @@ exportMergedBtn.addEventListener('click', () => {
 
 exportPartsBtn.addEventListener('click', () => {
   if (cachedPieces) exportAllSTL(cachedPieces);
+});
+
+export3mfBtn.addEventListener('click', () => {
+  if (cachedPieces) export3MFColored(cachedPieces);
 });

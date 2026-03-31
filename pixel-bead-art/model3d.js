@@ -13,24 +13,27 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLExporter }   from 'three/examples/jsm/exporters/STLExporter.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import ManifoldModule    from 'manifold-3d';
+import { zipSync, strToU8 } from 'fflate';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BOX_HW        = 8.063 / 2;   // 4.0315  half-width  (X)
 const BOX_HD        = 8.062 / 2;   // 4.031   half-depth  (Y)
+const BOX_H         = 37.625;      // full height (Z) — matches 初始长方体.stl
+const WALL_T        = 1.0;         // hollow box wall thickness (mm)
 const SLOT_HALF_PEN = 5.134 / 2;   // 2.567   penetration (Y natural, X after 90°Z rot)
 const PLUG_HALF_PRO = 4.067 / 2;   // 2.0335  protrusion  (Y natural, X after 90°Z rot)
 const EPSILON       = 0.5;         // overlap to avoid coplanar faces
 const PRINT_GAP     = 0.3;         // physical gap between adjacent box faces (prevents fusing when printing)
-const PLUG_CLEARANCE = 0.2;        // mm reduction per side on plug (print tolerance for plug-slot fit)
-// Uniform scale derived from protrusion dimension (4.067mm) → reduces all sides by ~PLUG_CLEARANCE
-const PLUG_SCALE    = (4.067 - 2 * PLUG_CLEARANCE) / 4.067;  // ≈ 0.902
+// Plug cross-section geometry (centered coords after loadCenteredGeom):
+const PLUG_NECK_HW  = 1.075;  // neck half-width (X)
+const PLUG_HEAD_HW  = 2.132;  // head half-width (X, widest point)
+const HEAD_THRESH   = (PLUG_NECK_HW + PLUG_HEAD_HW) / 2;  // ≈ 1.60 — boundary between neck & head verts
 
 const ROT_90Z  = new THREE.Matrix4().makeRotationZ(Math.PI / 2);
 // For BOTTOM plug: rotate 180° around Z to flip which end (base vs tip) faces the box
 const ROT_180Z = new THREE.Matrix4().makeRotationZ(Math.PI);
 
 // ── Shared state ──────────────────────────────────────────────────────────────
-let baseGeomTemplate = null;
 let slotGeomTemplate = null;
 let plugGeomTemplate = null;
 let renderer = null;
@@ -111,40 +114,98 @@ async function loadCenteredGeom(url) {
   return geom;
 }
 
+// ── Scale only the head vertices of the plug (|x| > HEAD_THRESH), leave neck unchanged ──
+// headScale = target head half-width / original head half-width
+function shapePlugGeom(template, headScale) {
+  const g = template.clone();
+  if (headScale === 1) return g;
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    if (Math.abs(x) > HEAD_THRESH) pos.setX(i, x * headScale);
+  }
+  pos.needsUpdate = true;
+  g.computeVertexNormals();
+  return g;
+}
+
 // ── Bake rotation + translation into a geometry clone ─────────────────────────
 function positionedGeom(template, rotMatrix, tx, ty, tz, scale = 1, zScale = 1) {
   const g = template.clone();
   if (scale !== 1 || zScale !== 1) {
-    g.applyMatrix4(new THREE.Matrix4().makeScale(scale, scale, scale * zScale));
+    g.applyMatrix4(new THREE.Matrix4().makeScale(scale, scale, zScale));
   }
   if (rotMatrix) g.applyMatrix4(rotMatrix);
   g.applyMatrix4(new THREE.Matrix4().makeTranslation(tx, ty, tz));
   return g;
 }
 
-// ── Load all three STL models (cached) ────────────────────────────────────────
+// ── Load slot + plug STL models (base box is now generated programmatically) ──
 export async function loadModels() {
-  [baseGeomTemplate, slotGeomTemplate, plugGeomTemplate] = await Promise.all([
-    loadCenteredGeom('/material/初始长方体.stl'),
+  [slotGeomTemplate, plugGeomTemplate] = await Promise.all([
     loadCenteredGeom('/material/小长方体.stl'),
     loadCenteredGeom('/material/插.stl'),
   ]);
 }
 
+// ── Hollow rectangular tube (open top + bottom) ────────────────────────────────
+// Outer dimensions match the original 初始长方体.stl (8.063 × 8.062 × BOX_H*zScale).
+// The interior cavity (BOX_W-2*WALL_T) × (BOX_D-2*WALL_T) is open in Z so that
+// the arrow plug from an adjacent piece can slide in from the top.
+//
+//   Outer:  8.063 × 8.062
+//   Inner:  4.463 × 4.462   (wall = 1.8 mm each side)
+//   Plug bounding box after pScale: ~3.85 × ~3.67  → fits inside inner with ~0.3 mm/side gap
+//
+function makeHollowBase(cx, cy, cz, zScale) {
+  const w  = BOX_HW * 2;               // 8.063
+  const d  = BOX_HD * 2;               // 8.062
+  const h  = BOX_H  * zScale;
+  const iw = w - 2 * WALL_T;           // inner width  (6.063 @ 1mm wall)
+  const id = d - 2 * WALL_T;           // inner depth  (6.062 @ 1mm wall)
+  // Inner void is WALL_T shorter on each Z end → leaves a top & bottom cap of WALL_T thickness
+  const ih = h - 2 * WALL_T;
+
+  const outer = ManifoldCls.cube([w, d, h],  /*center=*/true).translate([cx, cy, cz]);
+  const inner = ManifoldCls.cube([iw, id, ih], /*center=*/true).translate([cx, cy, cz]);
+
+  return outer.subtract(inner);
+}
+
 // ── Generate all pieces ───────────────────────────────────────────────────────
-// opts.zScale       — scale box/slot/plug in Z (height). default 1
-// opts.plugClearance — mm reduction per side on plug cross-section. default PLUG_CLEARANCE
+// opts.zScale           — scale box + slot in Z (height). default 1
+// opts.plugWidth        — uniform XY scale target for plug width (mm). default 4.263
+// opts.headScale        — extra multiplier on head vertices only. default 1
+// opts.plugHeight       — plug height in mm (Z). default 6.1
+// opts.surfaceThickness — colored top layer thickness (mm). 0 = no split. default 0.8
+// opts.bodyColor        — hex color for the body mesh. default '#cccccc'
+//
+// Each piece in the returned array has:
+//   { mesh, surfaceMesh, row, col, color }
+//   mesh        = body (bodyColor), surfaceMesh = top surface (pixel color)
+//   surfaceMesh is null when surfaceThickness = 0
 export async function generatePieces(pixelData, onProgress, opts = {}) {
-  if (!baseGeomTemplate) await loadModels();
+  if (!slotGeomTemplate) await loadModels();
   await initManifold();
 
+  const PLUG_ORIG_W = 4.263;
+  const PLUG_ORIG_H = 6.1;
+
   const {
-    zScale       = 1,
-    plugClearance = PLUG_CLEARANCE,
+    zScale            = 1,
+    plugWidth         = PLUG_ORIG_W,
+    headScale         = 1,
+    plugHeight        = PLUG_ORIG_H,
+    surfaceThickness  = 0.8,
+    bodyColor         = '#cccccc',
   } = opts;
 
-  // Recompute plug scale from the provided clearance value
-  const pScale = (4.067 - 2 * plugClearance) / 4.067;
+  const pScale     = plugWidth  / PLUG_ORIG_W;
+  const plugZScale = plugHeight / PLUG_ORIG_H;
+  const fullH      = BOX_H * zScale;
+  const doSplit    = surfaceThickness > 0 && surfaceThickness < fullH;
+
+  const shapedPlug = shapePlugGeom(plugGeomTemplate, headScale);
 
   const { pixels, boxW, boxD } = pixelData;
   const pieces = [];
@@ -161,45 +222,57 @@ export async function generatePieces(pixelData, onProgress, opts = {}) {
     const cy = row * (boxD + PRINT_GAP) + boxD / 2;
     const cz = 0;
 
-    // Start with base box as Manifold solid
-    let m = geomToManifold(positionedGeom(baseGeomTemplate, null, cx, cy, cz, 1, zScale));
+    let m = makeHollowBase(cx, cy, cz, zScale);
 
-    // ── RIGHT → PLUG (+X, rotate +90°Z: Y+base→X− at box face, Y−tip→X+ out)
+    // ── RIGHT → PLUG (+X, rotate +90°Z)
     if (neighbors.right) {
       const px = cx + BOX_HW + PLUG_HALF_PRO - EPSILON;
-      const pm = geomToManifold(positionedGeom(plugGeomTemplate, ROT_90Z, px, cy, cz, pScale, zScale));
-      m = m.add(pm);
+      m = m.add(geomToManifold(positionedGeom(shapedPlug, ROT_90Z, px, cy, cz, pScale, plugZScale)));
     }
-
-    // ── LEFT → SLOT (−X, rotate 90°Z) ─────────────────────────────────────
+    // ── LEFT → SLOT (−X, rotate 90°Z)
     if (neighbors.left) {
       const sx = cx - BOX_HW + SLOT_HALF_PEN - EPSILON;
-      const sm = geomToManifold(positionedGeom(slotGeomTemplate, ROT_90Z, sx, cy, cz, 1, zScale));
-      m = m.subtract(sm);
+      m = m.subtract(geomToManifold(positionedGeom(slotGeomTemplate, ROT_90Z, sx, cy, cz, 1, zScale)));
     }
-
-    // ── BOTTOM → PLUG (+Y, ROT_180Z: Y+base→Y− at box face, Y−tip→Y+ out)
+    // ── BOTTOM → PLUG (+Y, ROT_180Z)
     if (neighbors.bottom) {
       const py = cy + BOX_HD + PLUG_HALF_PRO - EPSILON;
-      const pm = geomToManifold(positionedGeom(plugGeomTemplate, ROT_180Z, cx, py, cz, pScale, zScale));
-      m = m.add(pm);
+      m = m.add(geomToManifold(positionedGeom(shapedPlug, ROT_180Z, cx, py, cz, pScale, plugZScale)));
     }
-
-    // ── TOP → SLOT (−Y, no rotation) ──────────────────────────────────────
+    // ── TOP → SLOT (−Y, no rotation)
     if (neighbors.top) {
       const sy = cy - BOX_HD + SLOT_HALF_PEN - EPSILON;
-      const sm = geomToManifold(positionedGeom(slotGeomTemplate, null, cx, sy, cz, 1, zScale));
-      m = m.subtract(sm);
+      m = m.subtract(geomToManifold(positionedGeom(slotGeomTemplate, null, cx, sy, cz, 1, zScale)));
     }
 
-    const geom = manifoldToGeom(m);
-    const mat  = new THREE.MeshStandardMaterial({
-      color:     new THREE.Color(color),
-      roughness: 0.6,
-      metalness: 0.05,
-      side:      THREE.DoubleSide,
+    let bodyManifold = m;
+    let surfaceManifold = null;
+
+    if (doSplit) {
+      // Surface cap: thin box at the very top of the piece
+      const capCZ = fullH / 2 - surfaceThickness / 2;  // center Z (geometry is centered at cz=0)
+      const cap = ManifoldCls.cube([BOX_HW * 2, BOX_HD * 2, surfaceThickness], true)
+        .translate([cx, cy, capCZ]);
+      surfaceManifold = m.intersect(cap);
+      bodyManifold    = m.subtract(cap);
+    }
+
+    // Body mesh
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(bodyColor), roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide,
     });
-    pieces.push({ mesh: new THREE.Mesh(geom, mat), row, col, color });
+    const mesh = new THREE.Mesh(manifoldToGeom(bodyManifold), bodyMat);
+
+    // Surface mesh
+    let surfaceMesh = null;
+    if (surfaceManifold) {
+      const surfMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color), roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
+      });
+      surfaceMesh = new THREE.Mesh(manifoldToGeom(surfaceManifold), surfMat);
+    }
+
+    pieces.push({ mesh, surfaceMesh, row, col, color });
   }
 
   onProgress?.('完成！');
@@ -284,12 +357,15 @@ export function showPieces(pieces) {
   const offsetX = count ? sumX / count : 0;
   const offsetY = count ? sumY / count : 0;
 
-  pieces.forEach(({ mesh }) => {
-    mesh.userData.isPiece = true;
-    mesh.castShadow    = true;
-    mesh.receiveShadow = true;
-    mesh.position.set(-offsetX, -offsetY, 0);
-    scene.add(mesh);
+  pieces.forEach(({ mesh, surfaceMesh }) => {
+    [mesh, surfaceMesh].forEach(m => {
+      if (!m) return;
+      m.userData.isPiece = true;
+      m.castShadow    = true;
+      m.receiveShadow = true;
+      m.position.set(-offsetX, -offsetY, 0);
+      scene.add(m);
+    });
   });
 }
 
@@ -319,6 +395,98 @@ export function exportMergedSTL(pieces) {
     href:     URL.createObjectURL(blob),
     download: 'model_merged.stl',
   });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── Export colored 3MF (body in bodyColor + pixel-colored top surface) ────────
+// Requires pieces generated with surfaceThickness > 0.
+export function export3MFColored(pieces, opts = {}) {
+  const { filename = 'model_colored.3mf', bodyColor = '#cccccc' } = opts;
+
+  // ── helpers ────────────────────────────────────────────────────────────────
+  // Extract world-space vertices and indices from a Three.js mesh
+  function meshArrays(mesh) {
+    const geo = mesh.geometry.clone();
+    mesh.updateMatrixWorld(true);
+    geo.applyMatrix4(mesh.matrixWorld);
+    if (!geo.index) geo = geo.toNonIndexed(); // ensure indexed
+    const verts   = geo.attributes.position.array;  // Float32Array, x y z x y z ...
+    const indices = geo.index ? geo.index.array : (() => {
+      const a = new Uint32Array(geo.attributes.position.count);
+      for (let i = 0; i < a.length; i++) a[i] = i;
+      return a;
+    })();
+    geo.dispose();
+    return { verts, indices };
+  }
+
+  // Write an <object> XML string with optional material reference
+  function objectXML(id, verts, indices, pid, pindex, name) {
+    const prec  = 5;
+    const parts = [];
+    parts.push(`  <object id="${id}" type="model" pid="${pid}" pindex="${pindex}"${name ? ` name="${name}"` : ''}>\n   <mesh>\n    <vertices>\n`);
+    for (let i = 0; i < verts.length; i += 3)
+      parts.push(`     <vertex x="${verts[i].toFixed(prec)}" y="${verts[i+1].toFixed(prec)}" z="${verts[i+2].toFixed(prec)}"/>\n`);
+    parts.push('    </vertices>\n    <triangles>\n');
+    for (let i = 0; i < indices.length; i += 3)
+      parts.push(`     <triangle v1="${indices[i]}" v2="${indices[i+1]}" v3="${indices[i+2]}"/>\n`);
+    parts.push('    </triangles>\n   </mesh>\n  </object>\n');
+    return parts.join('');
+  }
+
+  // ── collect unique pixel colors ────────────────────────────────────────────
+  const colorList = [bodyColor];   // index 0 = body color
+  const colorIdx  = new Map([[bodyColor, 0]]);
+  pieces.forEach(({ color }) => {
+    if (!colorIdx.has(color)) { colorIdx.set(color, colorList.length); colorList.push(color); }
+  });
+
+  // ── build 3dmodel.model XML ────────────────────────────────────────────────
+  const out = [];
+  out.push(`<?xml version="1.0" encoding="UTF-8"?>\n`);
+  out.push(`<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n`);
+  out.push(` <metadata name="Application">pixel-bead-art</metadata>\n`);
+  out.push(` <resources>\n`);
+
+  // basematerials
+  out.push(`  <basematerials id="1">\n`);
+  colorList.forEach(c => out.push(`   <base name="${c}" displaycolor="${c}"/>\n`));
+  out.push(`  </basematerials>\n`);
+
+  let objId = 2;
+  const items = [];
+
+  pieces.forEach(({ mesh, surfaceMesh, color }, pi) => {
+    // body
+    const { verts: bv, indices: bi } = meshArrays(mesh);
+    out.push(objectXML(objId, bv, bi, 1, 0, `body_${pi}`));
+    items.push(objId++);
+
+    // surface (if present)
+    if (surfaceMesh) {
+      const { verts: sv, indices: si } = meshArrays(surfaceMesh);
+      out.push(objectXML(objId, sv, si, 1, colorIdx.get(color), `surface_${pi}`));
+      items.push(objId++);
+    }
+  });
+
+  out.push(` </resources>\n`);
+  out.push(` <build>\n`);
+  items.forEach(id => out.push(`  <item objectid="${id}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n`));
+  out.push(` </build>\n`);
+  out.push(`</model>\n`);
+
+  // ── pack into ZIP (.3mf) ───────────────────────────────────────────────────
+  const modelXml = out.join('');
+  const zip = zipSync({
+    '[Content_Types].xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'),
+    '_rels/.rels':         strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>'),
+    '3D/3dmodel.model':    strToU8(modelXml),
+  });
+
+  const blob = new Blob([zip], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
   URL.revokeObjectURL(a.href);
 }

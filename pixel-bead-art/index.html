@@ -69,6 +69,41 @@
             <span class="model3d-title">3D 模型生成</span>
             <span id="model3d-info" class="model3d-info"></span>
           </div>
+
+          <!-- 参数面板 -->
+          <div class="model3d-params">
+            <div class="mp-row">
+              <label>零件高度</label>
+              <input type="range"  id="mp-height-r" min="10" max="80"     step="0.5"  value="37.625">
+              <input type="number" id="mp-height-v" min="10" max="80"     step="0.5"  value="37.625" class="mp-val">
+              <span class="mp-unit">mm</span>
+            </div>
+            <div class="mp-row">
+              <label>插宽度</label>
+              <input type="range"  id="mp-plugw-r"  min="1"  max="6"      step="0.05" value="4.263">
+              <input type="number" id="mp-plugw-v"  min="1"  max="6"      step="0.05" value="4.263" class="mp-val">
+              <span class="mp-unit">mm</span>
+            </div>
+            <div class="mp-row">
+              <label>头部倍率</label>
+              <input type="range"  id="mp-head-r"   min="0.3" max="3"     step="0.05" value="1">
+              <input type="number" id="mp-head-v"   min="0.3" max="3"     step="0.05" value="1"     class="mp-val">
+              <span class="mp-unit">×</span>
+            </div>
+            <div class="mp-row">
+              <label>插高度</label>
+              <input type="range"  id="mp-plugh-r"  min="1"  max="37.625" step="0.1"  value="6.1">
+              <input type="number" id="mp-plugh-v"  min="1"  max="37.625" step="0.1"  value="6.1"   class="mp-val">
+              <span class="mp-unit">mm</span>
+            </div>
+            <div class="mp-row">
+              <label>表面厚度</label>
+              <input type="range"  id="mp-surf-r"   min="0"  max="5"      step="0.1"  value="0.8">
+              <input type="number" id="mp-surf-v"   min="0"  max="5"      step="0.1"  value="0.8"   class="mp-val">
+              <span class="mp-unit">mm</span>
+            </div>
+          </div>
+
           <p id="model3d-status" class="model3d-status"></p>
           <div id="model3d-progress" class="progress-wrap hidden">
             <div class="progress-track">
@@ -80,6 +115,7 @@
           <div id="model3d-actions" class="model3d-actions hidden">
             <button id="export-merged-btn" class="btn-export">⬇ 导出合并 STL</button>
             <button id="export-parts-btn"  class="btn-export btn-export-parts">⬇ 导出各零件 STL</button>
+            <button id="export-3mf-btn"    class="btn-export btn-export-3mf">🎨 导出彩色 3MF</button>
           </div>
         </div>
 

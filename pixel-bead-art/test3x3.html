@@ -38,7 +38,14 @@
       color: #fff;
       text-shadow: 0 1px 2px rgba(0,0,0,.6);
       font-weight: 600;
+      transition: filter 0.15s, outline 0.15s;
+      outline: 2px solid transparent;
     }
+    .preview-cell:hover {
+      filter: brightness(1.15);
+      outline-color: rgba(255,255,255,0.6);
+    }
+    .cell-label { pointer-events: none; }
 
     button {
       padding: 12px 32px;
@@ -179,9 +186,27 @@
       <span class="param-unit">mm</span>
     </div>
     <div class="param-row">
-      <label>插公差</label>
-      <input type="range" id="clear-range" min="0" max="0.8" step="0.05" value="0.2">
-      <input type="number" id="clear-val" class="param-val" min="0" max="0.8" step="0.05" value="0.2">
+      <label>插宽度</label>
+      <input type="range" id="plugw-range" min="1.0" max="6.0" step="0.05" value="4.263">
+      <input type="number" id="plugw-val" class="param-val" min="1.0" max="6.0" step="0.05" value="4.263">
+      <span class="param-unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>头部倍率</label>
+      <input type="range" id="head-range" min="0.3" max="3.0" step="0.05" value="1">
+      <input type="number" id="head-val" class="param-val" min="0.3" max="3.0" step="0.05" value="1">
+      <span class="param-unit">×</span>
+    </div>
+    <div class="param-row">
+      <label>插高度</label>
+      <input type="range" id="plugh-range" min="1" max="37.625" step="0.1" value="6.1">
+      <input type="number" id="plugh-val" class="param-val" min="1" max="37.625" step="0.1" value="6.1">
+      <span class="param-unit">mm</span>
+    </div>
+    <div class="param-row">
+      <label>表面厚度</label>
+      <input type="range" id="surf-range" min="0" max="5" step="0.1" value="0.8">
+      <input type="number" id="surf-val" class="param-val" min="0" max="5" step="0.1" value="0.8">
       <span class="param-unit">mm</span>
     </div>
   </div>
@@ -223,6 +248,7 @@
     <div class="btn-row">
       <button class="btn-export" id="btn-parts">⬇ 导出各零件 STL</button>
       <button class="btn-export" id="btn-merged">⬇ 导出合并 STL</button>
+      <button class="btn-export" id="btn-3mf">🎨 导出彩色 3MF</button>
     </div>
 
   </div>
@@ -230,7 +256,7 @@
   <script type="module">
     import {
       generatePieces, initViewer, showPieces,
-      exportAllSTL, exportMergedSTL, loadModels,
+      exportAllSTL, exportMergedSTL, export3MFColored, loadModels,
       getCamera, getControls,
     } from '/model3d.js';
 
@@ -244,40 +270,67 @@
       '#00ACC1', '#D81B60', '#6D4C41',
     ];
 
-    const rawPixels = [];
-    for (let row = 0; row < 3; row++)
-      for (let col = 0; col < 3; col++)
-        rawPixels.push({ row, col, color: COLORS[row * 3 + col] });
+    const occupied = new Set();
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) occupied.add(`${r},${c}`);
 
-    const occupied = new Set(rawPixels.map(p => `${p.row},${p.col}`));
-    const pixels = rawPixels.map(p => ({
-      row: p.row,
-      col: p.col,
-      color: p.color,
-      x: p.col * BOX_W,
-      y: p.row * BOX_D,
-      neighbors: {
-        right:  occupied.has(`${p.row},${p.col + 1}`),
-        left:   occupied.has(`${p.row},${p.col - 1}`),
-        bottom: occupied.has(`${p.row + 1},${p.col}`),
-        top:    occupied.has(`${p.row - 1},${p.col}`),
-      },
-    }));
+    const pixels = [];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        pixels.push({
+          row, col,
+          color: COLORS[row * 3 + col],
+          neighbors: {
+            right:  occupied.has(`${row},${col + 1}`),
+            left:   occupied.has(`${row},${col - 1}`),
+            bottom: occupied.has(`${row + 1},${col}`),
+            top:    occupied.has(`${row - 1},${col}`),
+          },
+        });
+      }
+    }
 
     const pixelData = { cols: 3, rows: 3, boxW: BOX_W, boxD: BOX_D, pixels };
 
-    // ── 预览色块 ──────────────────────────────────────────────────────────────
+    // ── 预览色块（带取色器）────────────────────────────────────────────────────
     const previewGrid = document.getElementById('preview-grid');
-    pixels.forEach(({ color, neighbors }) => {
+    pixels.forEach((p, i) => {
       const cell = document.createElement('div');
       cell.className = 'preview-cell';
-      cell.style.background = color;
-      cell.textContent = [
-        neighbors.top    ? '↑' : '',
-        neighbors.right  ? '→' : '',
-        neighbors.bottom ? '↓' : '',
-        neighbors.left   ? '←' : '',
+      cell.style.background = p.color;
+      cell.title = '点击更换颜色';
+
+      // 连接方向指示
+      const label = document.createElement('span');
+      label.className = 'cell-label';
+      label.textContent = [
+        p.neighbors.top    ? '↑' : '',
+        p.neighbors.right  ? '→' : '',
+        p.neighbors.bottom ? '↓' : '',
+        p.neighbors.left   ? '←' : '',
       ].filter(Boolean).join('');
+      cell.appendChild(label);
+
+      // 隐藏的 color input
+      const picker = document.createElement('input');
+      picker.type  = 'color';
+      picker.value = p.color;
+      picker.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none';
+      cell.appendChild(picker);
+
+      // 点格子 → 弹出取色器
+      cell.style.position = 'relative';
+      cell.style.cursor   = 'pointer';
+      cell.addEventListener('click', () => picker.click());
+
+      // 颜色变化 → 更新数据 + 背景 + 自动重新生成
+      picker.addEventListener('input', e => {
+        p.color = e.target.value;
+        cell.style.background = p.color;
+      });
+      picker.addEventListener('change', () => {
+        runGenerate();
+      });
+
       previewGrid.appendChild(cell);
     });
 
@@ -294,7 +347,10 @@
     }
 
     syncRange('height-range', 'height-val');
-    syncRange('clear-range',  'clear-val');
+    syncRange('plugw-range',  'plugw-val');
+    syncRange('head-range',   'head-val');
+    syncRange('plugh-range',  'plugh-val');
+    syncRange('surf-range',   'surf-val');
 
     // ── 状态 ──────────────────────────────────────────────────────────────────
     const genBtn     = document.getElementById('gen-btn');
@@ -304,41 +360,43 @@
     const BASE_H     = 37.625;
 
     let pieces       = null;
-    let pieceSlots   = [];   // { mesh, assembledX, assembledY, assembledZ, nx, ny }
+    let pieceSlots   = [];
     let xrayActive   = false;
+    let generating   = false;   // WASM 正在跑
+    let pending      = false;   // 有新参数在等待
 
-    // ── 生成按钮 ──────────────────────────────────────────────────────────────
-    genBtn.addEventListener('click', async () => {
+    // ── 核心生成函数 ──────────────────────────────────────────────────────────
+    async function runGenerate() {
+      if (generating) { pending = true; return; }
+      generating = true;
+      pending    = false;
       genBtn.disabled = true;
-      viewerCtrl.style.display = 'none';
-      canvas.style.display = 'none';
-      statusEl.textContent = '加载模型文件…';
 
-      // 重置分解滑块
-      document.getElementById('explode-range').value = 0;
-      document.getElementById('explode-val').value   = 0;
-
-      const targetH   = parseFloat(document.getElementById('height-val').value);
-      const plugClear = parseFloat(document.getElementById('clear-val').value);
-      const zScale    = targetH / BASE_H;
+      const targetH         = parseFloat(document.getElementById('height-val').value);
+      const plugWidth       = parseFloat(document.getElementById('plugw-val').value);
+      const headScale       = parseFloat(document.getElementById('head-val').value);
+      const plugHeight      = parseFloat(document.getElementById('plugh-val').value);
+      const surfaceThickness = parseFloat(document.getElementById('surf-val').value);
+      const zScale          = targetH / BASE_H;
 
       try {
         await loadModels();
-        statusEl.textContent = `生成中（高度 ${targetH}mm，插公差 ±${plugClear}mm）…`;
+        statusEl.textContent = `生成中…`;
 
         pieces = await generatePieces(pixelData, msg => {
           statusEl.textContent = msg;
-        }, { zScale, plugClearance: plugClear });
+        }, { zScale, plugWidth, headScale, plugHeight, surfaceThickness });
 
         canvas.style.display = 'block';
         initViewer(canvas, { theme: 'light' });
         showPieces(pieces);
-        xrayActive = false;
-        applyXray(false);
-        document.getElementById('btn-xray').classList.remove('active');
+        applyXray(xrayActive);   // 恢复生成前的 X 光状态
+        document.getElementById('btn-xray').classList.toggle('active', xrayActive);
 
-        // 记录 showPieces 设置完 mesh.position 之后的组装位置
-        // 以及每个零件从 3×3 中心 (1,1) 向外的方向向量
+        // 重置分解滑块
+        document.getElementById('explode-range').value = 0;
+        document.getElementById('explode-val').value   = 0;
+
         const CENTER_ROW = 1, CENTER_COL = 1;
         pieceSlots = pieces.map(({ mesh, row, col }) => {
           const dx  = col - CENTER_COL;
@@ -357,13 +415,22 @@
         viewerCtrl.style.display = 'flex';
         setActiveView('persp');
         statusEl.textContent =
-          `✅ 完成！${pieces.length} 个零件 · 高度 ${targetH}mm · 插公差 ±${plugClear}mm`;
+          `✅ 完成！高度 ${targetH}mm · 插宽 ${plugWidth}mm · 插高 ${plugHeight}mm · 头部 ×${headScale}`;
       } catch (err) {
         statusEl.textContent = `❌ 出错：${err.message}`;
         console.error(err);
       } finally {
+        generating = false;
         genBtn.disabled = false;
+        // 如果拖动期间又改了参数，跑最新的一次
+        if (pending) runGenerate();
       }
+    }
+
+    // ── 按钮 & 滑块都触发生成 ─────────────────────────────────────────────────
+    genBtn.addEventListener('click', runGenerate);
+    ['height-range', 'plugw-range', 'head-range', 'plugh-range', 'surf-range'].forEach(id => {
+      document.getElementById(id).addEventListener('input', runGenerate);
     });
 
     // ── 分解动画 ──────────────────────────────────────────────────────────────
@@ -467,6 +534,7 @@
     // ── 导出 ──────────────────────────────────────────────────────────────────
     document.getElementById('btn-parts').addEventListener('click',  () => { if (pieces) exportAllSTL(pieces); });
     document.getElementById('btn-merged').addEventListener('click', () => { if (pieces) exportMergedSTL(pieces); });
+    document.getElementById('btn-3mf').addEventListener('click',    () => { if (pieces) export3MFColored(pieces); });
   </script>
 </body>
 </html>
