@@ -28,4 +28,12 @@ export default defineConfig({
   },
   root: '.',
   publicDir: 'public',
+  build: {
+    rollupOptions: {
+      input: {
+        main: './index.html',
+        test3x3: './test3x3.html',
+      },
+    },
+  },
 });
