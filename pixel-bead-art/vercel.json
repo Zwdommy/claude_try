@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/gemini-proxy/:path*",
+      "destination": "https://synai996.space/:path*"
+    },
+    {
+      "source": "/meshy-asset/:path*",
+      "destination": "https://assets.meshy.ai/:path*"
+    }
+  ]
+}

@@ -407,7 +407,7 @@ export function export3MFColored(pieces, opts = {}) {
   // ── helpers ────────────────────────────────────────────────────────────────
   // Extract world-space vertices and indices from a Three.js mesh
   function meshArrays(mesh) {
-    const geo = mesh.geometry.clone();
+    let geo = mesh.geometry.clone();
     mesh.updateMatrixWorld(true);
     geo.applyMatrix4(mesh.matrixWorld);
     if (!geo.index) geo = geo.toNonIndexed(); // ensure indexed
