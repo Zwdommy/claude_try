@@ -57,8 +57,8 @@ async function initManifold() {
 
 // ── Geometry ↔ Manifold conversions ──────────────────────────────────────────
 function geomToManifold(geom) {
-  // Ensure indexed geometry
-  const g    = geom.index ? geom : mergeVertices(geom);
+  // Always re-merge to fix any duplicate verts left by vertex manipulation
+  const g    = mergeVertices(geom.index ? geom : geom, 1e-4);
   const verts = new Float32Array(g.attributes.position.array);
   let   tris  = new Uint32Array(g.index.array);
 
@@ -224,25 +224,29 @@ export async function generatePieces(pixelData, onProgress, opts = {}) {
 
     let m = makeHollowBase(cx, cy, cz, zScale);
 
-    // ── RIGHT → PLUG (+X, rotate +90°Z)
-    if (neighbors.right) {
-      const px = cx + BOX_HW + PLUG_HALF_PRO - EPSILON;
-      m = m.add(geomToManifold(positionedGeom(shapedPlug, ROT_90Z, px, cy, cz, pScale, plugZScale)));
-    }
-    // ── LEFT → SLOT (−X, rotate 90°Z)
-    if (neighbors.left) {
-      const sx = cx - BOX_HW + SLOT_HALF_PEN - EPSILON;
-      m = m.subtract(geomToManifold(positionedGeom(slotGeomTemplate, ROT_90Z, sx, cy, cz, 1, zScale)));
-    }
-    // ── BOTTOM → PLUG (+Y, ROT_180Z)
-    if (neighbors.bottom) {
-      const py = cy + BOX_HD + PLUG_HALF_PRO - EPSILON;
-      m = m.add(geomToManifold(positionedGeom(shapedPlug, ROT_180Z, cx, py, cz, pScale, plugZScale)));
-    }
-    // ── TOP → SLOT (−Y, no rotation)
-    if (neighbors.top) {
-      const sy = cy - BOX_HD + SLOT_HALF_PEN - EPSILON;
-      m = m.subtract(geomToManifold(positionedGeom(slotGeomTemplate, null, cx, sy, cz, 1, zScale)));
+    try {
+      // ── RIGHT → PLUG (+X, rotate +90°Z)
+      if (neighbors.right) {
+        const px = cx + BOX_HW + PLUG_HALF_PRO - EPSILON;
+        m = m.add(geomToManifold(positionedGeom(shapedPlug, ROT_90Z, px, cy, cz, pScale, plugZScale)));
+      }
+      // ── LEFT → SLOT (−X, rotate 90°Z)
+      if (neighbors.left) {
+        const sx = cx - BOX_HW + SLOT_HALF_PEN - EPSILON;
+        m = m.subtract(geomToManifold(positionedGeom(slotGeomTemplate, ROT_90Z, sx, cy, cz, 1, zScale)));
+      }
+      // ── BOTTOM → PLUG (+Y, ROT_180Z)
+      if (neighbors.bottom) {
+        const py = cy + BOX_HD + PLUG_HALF_PRO - EPSILON;
+        m = m.add(geomToManifold(positionedGeom(shapedPlug, ROT_180Z, cx, py, cz, pScale, plugZScale)));
+      }
+      // ── TOP → SLOT (−Y, no rotation)
+      if (neighbors.top) {
+        const sy = cy - BOX_HD + SLOT_HALF_PEN - EPSILON;
+        m = m.subtract(geomToManifold(positionedGeom(slotGeomTemplate, null, cx, sy, cz, 1, zScale)));
+      }
+    } catch (e) {
+      console.warn(`[manifold] CSG failed at pixel row=${row} col=${col}, using hollow base only:`, e.message);
     }
 
     let bodyManifold = m;
