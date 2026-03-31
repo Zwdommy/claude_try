@@ -272,6 +272,7 @@ export async function generatePieces(pixelData, onProgress, opts = {}) {
     if (surfaceManifold) {
       const surfMat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(color), roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
       });
       surfaceMesh = new THREE.Mesh(manifoldToGeom(surfaceManifold), surfMat);
     }
