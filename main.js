@@ -291,14 +291,27 @@ function buildCard(index, imageUrl) {
     URL.revokeObjectURL(a.href);
   });
 
-  const geminiBtn = document.createElement('button');
-  geminiBtn.className = 'btn-gemini';
-  geminiBtn.textContent = 'Gemini 分析';
-  // Pass original CDN URL to Gemini (server-to-server fetch, no CORS issue)
-  geminiBtn.addEventListener('click', () => analyzeWithGemini(imageUrl, index));
+  // Grid size selector
+  const gridSelect = document.createElement('select');
+  gridSelect.className = 'grid-select';
+  [8, 12, 16, 20, 24, 32].forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = `${n}×${n}`;
+    if (n === 16) opt.selected = true;
+    gridSelect.appendChild(opt);
+  });
+
+  const analyzeBtn = document.createElement('button');
+  analyzeBtn.className = 'btn-gemini';
+  analyzeBtn.textContent = '像素分析';
+  analyzeBtn.addEventListener('click', () => {
+    analyzeDirectly(proxyUrl, parseInt(gridSelect.value));
+  });
 
   actions.appendChild(dlBtn);
-  actions.appendChild(geminiBtn);
+  actions.appendChild(gridSelect);
+  actions.appendChild(analyzeBtn);
 
   card.appendChild(label);
   card.appendChild(img);
@@ -306,82 +319,94 @@ function buildCard(index, imageUrl) {
   return card;
 }
 
-// ── Gemini ────────────────────────────────────────────────────────────────────
+// ── Direct canvas-based pixel analysis (no Gemini) ────────────────────────────
 
-async function analyzeWithGemini(imageUrl, cardIndex) {
+function analyzeDirectly(proxyUrl, gridSize) {
   geminiSection.classList.remove('hidden');
   geminiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   pixelCanvas.classList.add('hidden');
-  pixelInfo.textContent   = '';
-  setGeminiStatus('发送给 Gemini，请稍候…');
+  pixelInfo.textContent = '';
+  setGeminiStatus('分析中…');
 
-  try {
-    // Send the CDN URL directly — Gemini fetches it server-side, no CORS/base64 needed
-    const res = await fetch(`${GEMINI_BASE}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${GEMINI_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: GEMINI_MODEL,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: { url: imageUrl },
-            },
-            {
-              type: 'text',
-              text:
-                'This is pixel art made of solid-colored square blocks arranged in a grid.\n' +
-                'Carefully identify every pixel block and its exact dominant color.\n' +
-                'Return ONLY a valid JSON object, no markdown, no explanation:\n' +
-                '{"cols":<int>,"rows":<int>,"pixels":[{"row":0,"col":0,"color":"#RRGGBB"},...]}' +
-                '\nRules:\n' +
-                '- color must be the most representative hex color of that block (e.g. "#FF3300"), never approximate to white/black unless the block truly is\n' +
-                '- EXCLUDE background pixels: do NOT include pixels that belong to the background, empty space, or plain backdrop surrounding the main subject\n' +
-                '- only include pixels that are part of the actual foreground subject\n' +
-                '- list included pixels row by row (top to bottom), left to right' +
-                (smallMode
-                  ? '\n- IMPORTANT: use a coarse grid of at most 10 columns and 10 rows; the total number of foreground pixels must not exceed 100'
-                  : ''),
-            },
-          ],
-        }],
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(`Gemini 错误 ${res.status}：${body.error?.message || JSON.stringify(body)}`);
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try {
+      const pixelData = sampleImage(img, gridSize);
+      if (pixelData.pixels.length === 0) throw new Error('未检测到前景像素，尝试换一个格子数');
+      renderPixelCanvas(pixelData);
+      setGeminiStatus('');
+    } catch (e) {
+      setGeminiStatus(`分析失败：${e.message}`, true);
     }
+  };
+  img.onerror = () => setGeminiStatus('图片加载失败', true);
+  img.src = proxyUrl;
+}
 
-    const data    = await res.json();
-    const rawText = data.choices?.[0]?.message?.content ?? '';
+// Sample image at gridSize×gridSize, return pixelData with background removed
+function sampleImage(img, gridSize) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = gridSize;
+  canvas.height = gridSize;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, gridSize, gridSize);
+  const { data } = ctx.getImageData(0, 0, gridSize, gridSize);
 
-    // Extract JSON (may be wrapped in ```json ... ```)
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Gemini 未返回有效 JSON');
+  const getPixel = (x, y) => {
+    const i = (y * gridSize + x) * 4;
+    return { r: data[i], g: data[i+1], b: data[i+2], a: data[i+3] };
+  };
 
-    const pixelData = JSON.parse(jsonMatch[0]);
-    if (!pixelData.cols || !pixelData.rows || !Array.isArray(pixelData.pixels)) {
-      throw new Error('JSON 格式不正确');
+  const colorDist = (a, b) =>
+    Math.sqrt((a.r-b.r)**2 + (a.g-b.g)**2 + (a.b-b.b)**2);
+
+  const toHex = ({ r, g, b }) =>
+    '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+  // Detect background: flood-fill from all 4 corners using corner color
+  const corners = [
+    getPixel(0, 0), getPixel(gridSize-1, 0),
+    getPixel(0, gridSize-1), getPixel(gridSize-1, gridSize-1),
+  ];
+  // Pick the most opaque corner as background reference
+  const bgRef = corners.reduce((a, b) => b.a > a.a ? b : a);
+  const BG_THRESH = 40; // color distance threshold
+
+  // Flood-fill to mark background pixels
+  const isBg = new Uint8Array(gridSize * gridSize);
+  const queue = [];
+  const enqueue = (x, y) => {
+    const idx = y * gridSize + x;
+    if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return;
+    if (isBg[idx]) return;
+    const px = getPixel(x, y);
+    if (px.a < 30 || colorDist(px, bgRef) < BG_THRESH) {
+      isBg[idx] = 1;
+      queue.push(x, y);
     }
-
-    // 小鼻嘎模式：强制限制在 100 个像素以内
-    if (smallMode && pixelData.pixels.length > 100) {
-      pixelData.pixels = pixelData.pixels.slice(0, 100);
-      setGeminiStatus(`⚠️ 小鼻嘎模式：已裁剪至 100 个像素`, false);
-    }
-
-    renderPixelCanvas(pixelData);
-    if (!smallMode || pixelData.pixels.length <= 100) setGeminiStatus('');
-  } catch (err) {
-    console.error('[gemini]', err);
-    setGeminiStatus(`Gemini 出错：${err.message}`, true);
+  };
+  // Seed from all border pixels
+  for (let x = 0; x < gridSize; x++) { enqueue(x, 0); enqueue(x, gridSize-1); }
+  for (let y = 0; y < gridSize; y++) { enqueue(0, y); enqueue(gridSize-1, y); }
+  while (queue.length) {
+    const y = queue.pop(), x = queue.pop();
+    enqueue(x+1, y); enqueue(x-1, y); enqueue(x, y+1); enqueue(x, y-1);
   }
+
+  const pixels = [];
+  for (let row = 0; row < gridSize; row++) {
+    for (let col = 0; col < gridSize; col++) {
+      if (isBg[row * gridSize + col]) continue;
+      const px = getPixel(col, row);
+      if (px.a < 30) continue;
+      pixels.push({ row, col, color: toHex(px) });
+    }
+  }
+
+  // 小鼻嘎模式限制
+  const limited = smallMode ? pixels.slice(0, 100) : pixels;
+  return { cols: gridSize, rows: gridSize, pixels: limited };
 }
 
 // ── Canvas renderer ───────────────────────────────────────────────────────────

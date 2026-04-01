@@ -221,6 +221,16 @@ header p { color: var(--text-muted); font-size: 0.95rem; }
 }
 .btn-gemini:hover { opacity: 0.85; }
 
+.grid-select {
+  padding: 6px 10px;
+  background: #1e1e2e;
+  color: #e0e0f0;
+  border: 1px solid #444466;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
 /* ── Gemini section ──────────────────────────────────────────────── */
 .gemini-section {
   margin-top: 32px;
