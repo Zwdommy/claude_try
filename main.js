@@ -7,18 +7,20 @@ const GEMINI_BASE  = '/gemini-proxy';
 const GEMINI_KEY   = 'sk-fZlBimZDWmOFqZcA1jZEJiEXP75T1Ae3E04CDLcYrn410aHO';
 const GEMINI_MODEL = 'gemini-3.1-pro-high';
 
+const BASE_PROMPT = 'pixel bead art, cartoon style, cute chibi, flat bold colors, no gradients, no shading, no texture, solid white background, subject clearly separated from background, crisp edges between subject and background, retro 8-bit video game sprite';
+
 const VARIANTS = [
-  { prompt: 'pixel bead art, extremely coarse 10x10 pixel grid, very large square pixels, flat bold colors, no gradients, retro 8-bit style' },
-  { prompt: 'pixel bead art, coarse 14x14 pixel grid, large square pixels, flat colors, no gradients, retro 16-bit style' },
-  { prompt: 'pixel bead art, medium 17x17 pixel grid, square pixels, flat colors, no gradients, retro pixel art style' },
-  { prompt: 'pixel bead art, fine 20x20 pixel grid, small square pixels, flat colors, no gradients, detailed retro pixel art' },
+  { prompt: `${BASE_PROMPT}, extremely coarse 10x10 pixel grid, very large square pixels` },
+  { prompt: `${BASE_PROMPT}, coarse 14x14 pixel grid, large square pixels` },
+  { prompt: `${BASE_PROMPT}, medium 17x17 pixel grid, square pixels` },
+  { prompt: `${BASE_PROMPT}, fine 20x20 pixel grid, small square pixels` },
 ];
 
 const SMALL_VARIANTS = [
-  { prompt: 'pixel bead art, ultra coarse 6x6 pixel grid, huge square pixels, flat bold colors, no gradients, retro 8-bit style' },
-  { prompt: 'pixel bead art, extremely coarse 7x7 pixel grid, very large square pixels, flat bold colors, no gradients, retro 8-bit style' },
-  { prompt: 'pixel bead art, very coarse 8x8 pixel grid, large square pixels, flat colors, no gradients, retro 8-bit style' },
-  { prompt: 'pixel bead art, coarse 10x10 pixel grid, large square pixels, flat bold colors, no gradients, retro 8-bit style' },
+  { prompt: `${BASE_PROMPT}, ultra coarse 6x6 pixel grid, huge square pixels` },
+  { prompt: `${BASE_PROMPT}, extremely coarse 7x7 pixel grid, very large square pixels` },
+  { prompt: `${BASE_PROMPT}, very coarse 8x8 pixel grid, large square pixels` },
+  { prompt: `${BASE_PROMPT}, coarse 10x10 pixel grid, large square pixels` },
 ];
 
 let smallMode = false;
