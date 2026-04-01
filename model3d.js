@@ -369,6 +369,7 @@ export function showPieces(pieces) {
       m.userData.isPiece = true;
       m.castShadow    = true;
       m.receiveShadow = true;
+      m.scale.z = -1;
       m.position.set(-offsetX, -offsetY, 0);
       scene.add(m);
     });
